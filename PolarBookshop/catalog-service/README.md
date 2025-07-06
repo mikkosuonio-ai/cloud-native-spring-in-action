@@ -41,3 +41,11 @@ Select the new wrapper version and retrieve the checksum ("Binary-only (-bin) ZI
 ```bash
 ./gradlew wrapper --gradle-version <NEW VERSION> --gradle-distribution-sha256-sum <CHECKSUM>
 ```
+
+## Upgrade dependencies
+
+List available updates
+
+```bash
+./gradlew dependencyUpdates -Drevision=release
+```
