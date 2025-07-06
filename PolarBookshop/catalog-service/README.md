@@ -33,3 +33,11 @@ After building the application, you can also run it from the Java CLI:
 ```bash
 java -jar build/libs/catalog-service-0.0.1-SNAPSHOT.jar
 ```
+
+## Upgrade gradle wrapper
+
+Select the new wrapper version and retrieve the checksum ("Binary-only (-bin) ZIP Checksum") from https://gradle.org/release-checksums/
+
+```bash
+./gradlew wrapper --gradle-version <NEW VERSION> --gradle-distribution-sha256-sum <CHECKSUM>
+```
