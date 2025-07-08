@@ -7,7 +7,7 @@ plugins {
 
 group = 'com.polarbookshop'
 version = '0.0.1-SNAPSHOT'
-sourceCompatibility = '17'
+sourceCompatibility = '21'
 
 description = 'Provides functionality for managing the books in the catalog.'
 
@@ -71,7 +71,7 @@ bootRun {
 bootBuildImage {
 	builder = "docker.io/paketobuildpacks/builder-jammy-base"
 	imageName = "${project.name}"
-	environment = ["BP_JVM_VERSION": "17"]
+	environment = ["BP_JVM_VERSION": "21"]
 
 	docker {
 		publishRegistry {
