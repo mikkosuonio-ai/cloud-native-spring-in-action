@@ -82,6 +82,10 @@ bootBuildImage {
 	}
 }
 
-tasks.named('test') {
+tasks.named('test', Test) {
 	useJUnitPlatform()
+}
+
+compileTestJava {
+	options.compilerArgs << '-parameters'
 }
