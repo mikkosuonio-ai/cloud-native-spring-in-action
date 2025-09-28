@@ -46,7 +46,6 @@ jobs:
           PolarBookshop/quote-function,
           PolarBookshop/dispatcher-service,
           PolarBookshop/config-service,
-          PolarBookshop/polar-deployment,
           PolarBookshop/order-service,
           PolarBookshop/edge-service,
         ]
