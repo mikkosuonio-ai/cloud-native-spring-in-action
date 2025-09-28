@@ -5,6 +5,33 @@ on:
     - cron: '0 0 * * 1'
 
 jobs:
+  build-java-21:
+    name: Build and Test ${{ matrix.project }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [
+          PolarBookshop/catalog-service,
+        ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - name: Build, unit tests and integration tests
+        run: |
+          cd ${{ matrix.project }}
+          chmod +x gradlew
+          ./gradlew build
+
   build:
     name: Build and Test ${{ matrix.project }}
     runs-on: ubuntu-22.04
@@ -15,7 +42,6 @@ jobs:
       fail-fast: false
       matrix:
         project: [
-          PolarBookshop/catalog-service,
           PolarBookshop/quote-service,
           PolarBookshop/quote-function,
           PolarBookshop/dispatcher-service,
