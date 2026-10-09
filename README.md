@@ -39,6 +39,39 @@ Gradle | Maven
 `./gradlew bootRun` | `./mvnw spring-boot:run`
 `./gradlew bootBuildImage` | `./mvnw spring-boot:build-image -DskipTests`
 
+## Running Testcontainers Tests with Podman
+
+Some services (`catalog-service`, `order-service`, `edge-service`) use Testcontainers in their integration tests, which requires a Docker-compatible API. If you use Podman instead of Docker, expose the Podman API socket and point Testcontainers at it.
+
+Start the socket temporarily (keep the socket path short, Unix sockets have a path length limit):
+
+```shell
+podman system service --time=0 unix:///tmp/podman-tc.sock &
+PODMAN_PID=$!
+
+export DOCKER_HOST=unix:///tmp/podman-tc.sock
+export TESTCONTAINERS_RYUK_DISABLED=true
+
+cd PolarBookshop/catalog-service
+./gradlew test
+
+kill $PODMAN_PID
+```
+
+Alternatively, let systemd manage the socket permanently:
+
+```shell
+systemctl --user enable --now podman.socket
+
+export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock
+export TESTCONTAINERS_RYUK_DISABLED=true
+
+cd PolarBookshop/catalog-service
+./gradlew test
+```
+
+Add the two `export` lines to your shell profile (e.g. `~/.bashrc`) to make them persistent. Use `./gradlew cleanTest test` to force re-running tests that Gradle considers up to date.
+
 ## Guides, Tools and Tips
 
 * [Configuring IntelliJ IDEA](https://github.com/ThomasVitale/cloud-native-spring-in-action/tree/main/Guides/configuring-intellij-idea.md)
