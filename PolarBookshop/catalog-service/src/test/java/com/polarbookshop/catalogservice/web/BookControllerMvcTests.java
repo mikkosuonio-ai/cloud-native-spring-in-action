@@ -1,5 +1,7 @@
 package com.polarbookshop.catalogservice.web;
 
+import java.util.List;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.polarbookshop.catalogservice.config.SecurityConfig;
 import com.polarbookshop.catalogservice.domain.Book;
@@ -40,6 +42,19 @@ class BookControllerMvcTests {
 
 	@MockitoBean
 	BookService bookService;
+
+	@Test
+	void whenGetBooksNotAuthenticatedThenShouldReturnAllBooks() throws Exception {
+		var book1 = Book.of("7373731394", "Title", "Author", 9.90, "Polarsophia");
+		var book2 = Book.of("7373731395", "Another Title", "Author", 12.90, "Polarsophia");
+		given(bookService.viewBookList()).willReturn(List.of(book1, book2));
+		mockMvc
+				.perform(get("/books"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(2))
+				.andExpect(jsonPath("$[0].isbn").value(book1.isbn()))
+				.andExpect(jsonPath("$[1].isbn").value(book2.isbn()));
+	}
 
 	@Test
 	void whenGetBookExistingAndAuthenticatedThenShouldReturn200() throws Exception {
