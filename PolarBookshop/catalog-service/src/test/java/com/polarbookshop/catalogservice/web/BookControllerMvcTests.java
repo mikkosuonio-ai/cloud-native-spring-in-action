@@ -3,6 +3,7 @@ package com.polarbookshop.catalogservice.web;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.polarbookshop.catalogservice.config.SecurityConfig;
 import com.polarbookshop.catalogservice.domain.Book;
+import com.polarbookshop.catalogservice.domain.BookAlreadyExistsException;
 import com.polarbookshop.catalogservice.domain.BookNotFoundException;
 import com.polarbookshop.catalogservice.domain.BookService;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(BookController.class)
@@ -176,6 +179,35 @@ class BookControllerMvcTests {
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(objectMapper.writeValueAsString(bookToCreate)))
 				.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void whenPostBookWithInvalidFieldsThenShouldReturn400WithErrors() throws Exception {
+		var invalidBook = Book.of("a234567890", "", "Author", -9.90, "Polarsophia");
+		mockMvc
+				.perform(post("/books")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(objectMapper.writeValueAsString(invalidBook))
+						.with(jwt().authorities(new SimpleGrantedAuthority(ROLE_EMPLOYEE))))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.isbn").value("The ISBN format must be valid."))
+				.andExpect(jsonPath("$.title").value("The book title must be defined."))
+				.andExpect(jsonPath("$.price").value("The book price must be greater than zero."))
+				.andExpect(jsonPath("$.author").doesNotExist());
+	}
+
+	@Test
+	void whenPostBookAlreadyExistingThenShouldReturn422() throws Exception {
+		var isbn = "7373731394";
+		var bookToCreate = Book.of(isbn, "Title", "Author", 9.90, "Polarsophia");
+		given(bookService.addBookToCatalog(bookToCreate)).willThrow(new BookAlreadyExistsException(isbn));
+		mockMvc
+				.perform(post("/books")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(objectMapper.writeValueAsString(bookToCreate))
+						.with(jwt().authorities(new SimpleGrantedAuthority(ROLE_EMPLOYEE))))
+				.andExpect(status().isUnprocessableEntity())
+				.andExpect(content().string("A book with ISBN " + isbn + " already exists."));
 	}
 
 }
