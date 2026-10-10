@@ -72,6 +72,10 @@ cd PolarBookshop/catalog-service
 
 Add the two `export` lines to your shell profile (e.g. `~/.bashrc`) to make them persistent. Use `./gradlew cleanTest test` to force re-running tests that Gradle considers up to date.
 
+## Code Coverage
+
+The Polar Bookshop services use JaCoCo. Running `./gradlew test` in a service also generates the coverage report at `build/reports/jacoco/test/html/index.html`.
+
 ## Guides, Tools and Tips
 
 * [Configuring IntelliJ IDEA](https://github.com/ThomasVitale/cloud-native-spring-in-action/tree/main/Guides/configuring-intellij-idea.md)
