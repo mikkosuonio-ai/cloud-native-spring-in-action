@@ -32,7 +32,10 @@ class OrderServiceTests {
 
 	@BeforeEach
 	void setUp() {
-		// StreamBridge is a final class and is not used when consuming dispatched events
+		// TODO: Replace this manual construction when upgrading to Mockito 5.
+		// Mockito 4 (Spring Boot 2.7) cannot mock the final StreamBridge class, so null is passed
+		// instead. It is not used when consuming dispatched events, but any test of submitOrder()
+		// would fail. With Mockito 5, mock StreamBridge with @Mock and use @InjectMocks for OrderService.
 		orderService = new OrderService(bookClient, null, orderRepository);
 	}
 
