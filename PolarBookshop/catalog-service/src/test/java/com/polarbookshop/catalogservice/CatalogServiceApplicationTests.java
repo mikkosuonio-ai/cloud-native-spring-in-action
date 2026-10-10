@@ -57,6 +57,16 @@ class CatalogServiceApplicationTests {
 	}
 
 	@Test
+	void whenGetRootThenConfiguredGreetingReturned() {
+		webTestClient
+				.get()
+				.uri("/")
+				.exchange()
+				.expectStatus().isOk()
+				.expectBody(String.class).isEqualTo("Welcome to the local book catalog!");
+	}
+
+	@Test
 	void whenGetRequestWithIdThenBookReturned() {
 		var bookIsbn = "1231231230";
 		var bookToCreate = Book.of(bookIsbn, "Title", "Author", 9.90, "Polarsophia");
