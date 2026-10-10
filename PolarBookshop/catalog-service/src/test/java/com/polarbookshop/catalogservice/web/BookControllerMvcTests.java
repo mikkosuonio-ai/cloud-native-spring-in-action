@@ -18,6 +18,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -139,13 +140,13 @@ class BookControllerMvcTests {
 	void whenPostBookWithCustomerRoleThenShouldReturn403() throws Exception {
 		var isbn = "7373731394";
 		var bookToCreate = Book.of(isbn, "Title", "Author", 9.90, "Polarsophia");
-		given(bookService.addBookToCatalog(bookToCreate)).willReturn(bookToCreate);
 		mockMvc
 				.perform(post("/books")
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(objectMapper.writeValueAsString(bookToCreate))
 						.with(jwt().authorities(new SimpleGrantedAuthority(ROLE_CUSTOMER))))
 				.andExpect(status().isForbidden());
+		verifyNoInteractions(bookService);
 	}
 
 	@Test
@@ -162,27 +163,29 @@ class BookControllerMvcTests {
 	@Test
 	void whenPutBookWithEmployeeRoleThenShouldReturn200() throws Exception {
 		var isbn = "7373731394";
-		var bookToCreate = Book.of(isbn, "Title", "Author", 9.90, "Polarsophia");
-		given(bookService.addBookToCatalog(bookToCreate)).willReturn(bookToCreate);
+		var bookToUpdate = Book.of(isbn, "Title", "Author", 7.95, "Polarsophia");
+		given(bookService.editBookDetails(isbn, bookToUpdate)).willReturn(bookToUpdate);
 		mockMvc
 				.perform(put("/books/" + isbn)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content(objectMapper.writeValueAsString(bookToCreate))
+						.content(objectMapper.writeValueAsString(bookToUpdate))
 						.with(jwt().authorities(new SimpleGrantedAuthority(ROLE_EMPLOYEE))))
-				.andExpect(status().isOk());
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.isbn").value(isbn))
+				.andExpect(jsonPath("$.price").value(7.95));
 	}
 
 	@Test
 	void whenPutBookWithCustomerRoleThenShouldReturn403() throws Exception {
 		var isbn = "7373731394";
-		var bookToCreate = Book.of(isbn, "Title", "Author", 9.90, "Polarsophia");
-		given(bookService.addBookToCatalog(bookToCreate)).willReturn(bookToCreate);
+		var bookToUpdate = Book.of(isbn, "Title", "Author", 9.90, "Polarsophia");
 		mockMvc
 				.perform(put("/books/" + isbn)
 						.contentType(MediaType.APPLICATION_JSON)
-						.content(objectMapper.writeValueAsString(bookToCreate))
+						.content(objectMapper.writeValueAsString(bookToUpdate))
 						.with(jwt().authorities(new SimpleGrantedAuthority(ROLE_CUSTOMER))))
 				.andExpect(status().isForbidden());
+		verifyNoInteractions(bookService);
 	}
 
 	@Test
