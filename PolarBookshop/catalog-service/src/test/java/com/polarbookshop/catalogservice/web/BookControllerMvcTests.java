@@ -149,7 +149,7 @@ class BookControllerMvcTests {
 	}
 
 	@Test
-	void whenPostBookAndNotAuthenticatedThenShouldReturn403() throws Exception {
+	void whenPostBookAndNotAuthenticatedThenShouldReturn401() throws Exception {
 		var isbn = "7373731394";
 		var bookToCreate = Book.of(isbn, "Title", "Author", 9.90, "Polarsophia");
 		mockMvc
