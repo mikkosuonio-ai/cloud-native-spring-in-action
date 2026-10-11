@@ -2,7 +2,7 @@
 # Smoke test for PolarBookshop services running under Podman.
 #
 # Usage: smoke-test.sh [up|test|down|all] [catalog] [order] [dispatcher] [config] [edge] [quote]
-#                      [quote-function] [--rebuild]
+#                      [quote-function] [observability] [--rebuild]
 #   up      build missing images (or all selected with --rebuild), start backing services + apps
 #   test    run the HTTP smoke tests against the running stack
 #   down    remove the app containers and the compose backing services
@@ -10,7 +10,9 @@
 #
 # Services default to "catalog order dispatcher config"; edge, quote and quote-function must
 # be asked for, since the whole set doesn't fit in this machine's memory. order needs catalog,
-# and edge needs catalog, order and polar-ui; those are added automatically.
+# and edge needs catalog, order and polar-ui; those are added automatically. observability adds
+# Prometheus, Tempo and Grafana and exports traces, on top of the default services if no other
+# service is given.
 # Run from anywhere inside a worktree of the repository.
 set -uo pipefail
 
@@ -21,11 +23,12 @@ for a in "$@"; do
   case $a in
     up|test|down|all)        CMD=$a ;;
     --rebuild)               REBUILD=1 ;;
-    catalog|order|dispatcher|config|edge|quote|quote-function) SELECTED+=("$a") ;;
-    *) sed -n '2,14p' "$0"; exit 2 ;;
+    catalog|order|dispatcher|config|edge|quote|quote-function|observability) SELECTED+=("$a") ;;
+    *) sed -n '2,15p' "$0"; exit 2 ;;
   esac
 done
-(( ${#SELECTED[@]} )) || SELECTED=(catalog order dispatcher config)
+[[ " ${SELECTED[*]} " == *[a-z]* && " ${SELECTED[*]} " != " observability " ]] \
+  || SELECTED+=(catalog order dispatcher config)
 selected() { [[ " ${SELECTED[*]} " == *" $1 "* ]]; }
 SERVICES=()
 selected config && SERVICES+=(config-service)
@@ -52,6 +55,9 @@ has() { [[ " ${SERVICES[*]} " == *" $1 "* ]]; }
 needs_keycloak() { has catalog-service; }
 needs_rabbit() { has order-service || has dispatcher-service; }
 needs_redis() { has edge-service; }
+needs_observability() { selected observability; }
+# Services with actuator metrics and the OpenTelemetry agent.
+TRACED=(catalog-service order-service dispatcher-service config-service edge-service)
 # With config-service selected, catalog-service reads its configuration from it.
 config_client() { [[ $1 == catalog-service ]] && has config-service; }
 
@@ -81,6 +87,12 @@ CONFIG=http://localhost:8888
 KEYCLOAK=http://localhost:8080
 RABBIT=http://localhost:15672/api
 RABBIT_AUTH=user:password
+PROMETHEUS=http://localhost:9090
+TEMPO=http://localhost:3110
+GRAFANA=http://localhost:3000
+GRAFANA_AUTH=user:password
+declare -A BASE_URL=([catalog-service]=$CATALOG [order-service]=$ORDER [dispatcher-service]=$DISPATCHER
+                     [config-service]=$CONFIG [edge-service]=$EDGE)
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
@@ -132,16 +144,19 @@ EOF
 # podman-compose can't drop those via an override file, so the apps are started directly.
 # Services not in the compose file get just their image and STANDALONE_PORT.
 run_args() { # service
-  local client=; config_client "$1" && client=1
-  python3 -I - "$COMPOSE" "$1" "$NET" "${STANDALONE_PORT[$1]:-}" "$client" <<'EOF'
+  local client= traces=; config_client "$1" && client=1; needs_observability && traces=1
+  python3 -I - "$COMPOSE" "$1" "$NET" "${STANDALONE_PORT[$1]:-}" "$client" "$traces" <<'EOF'
 import sys, yaml
-compose, name, net, port, client = sys.argv[1:]
+compose, name, net, port, client, traces = sys.argv[1:]
 svc = yaml.safe_load(open(compose))["services"].get(name) or {"image": name, "ports": [f"{port}:{port}"]}
 env = svc.get("environment", [])
 if isinstance(env, dict):
     env = [f"{k}={v}" for k, v in env.items()]
-# No tempo here; keep the agent for instrumentation but don't export.
-env += ["OTEL_TRACES_EXPORTER=none", "OTEL_LOGS_EXPORTER=none", "OTEL_METRICS_EXPORTER=none"]
+# Traces go to tempo only when it runs (observability). Logs go through fluent-bit in the
+# compose setup, and metrics through Prometheus scraping, so the agent never exports those.
+env += ["OTEL_LOGS_EXPORTER=none", "OTEL_METRICS_EXPORTER=none"]
+if not traces:
+    env += ["OTEL_TRACES_EXPORTER=none"]
 # The compose file only sets the config-service URI; the client is off unless enabled.
 # fail-fast, so a service that can't reach config-service fails instead of falling back.
 if client:
@@ -175,6 +190,7 @@ up() {
   needs_keycloak && (( need_mb += 1000 ))
   needs_rabbit && (( need_mb += 100 ))
   needs_redis && (( need_mb += 100 ))
+  needs_observability && (( need_mb += 300 ))
   avail_mb=$(free -m | awk '/^Mem:/ {print $7}')
   echo "Available memory: ${avail_mb} MiB (stack needs about ${need_mb} MiB)"
   (( avail_mb < need_mb )) && echo "WARNING: stack may be OOM-killed. Stop other containers / Gradle daemons first."
@@ -195,6 +211,8 @@ up() {
   needs_keycloak && backing+=(polar-postgres polar-keycloak)
   needs_rabbit && backing+=(polar-rabbitmq)
   needs_redis && backing+=(polar-redis)
+  # grafana's depends_on also brings up loki and fluent-bit; nothing sends logs to them.
+  needs_observability && backing+=(prometheus tempo grafana)
   # Podman has no unqualified-search registries here, so short names like
   # "rabbitmq:3.13-management" only work once the image is in local storage.
   local img
@@ -248,6 +266,11 @@ up() {
   fi
   if has dispatcher-service; then
     wait_until 120 "dispatcher-service consumer" consumer_bound order-accepted.dispatcher-service || exit 1
+  fi
+  if needs_observability; then
+    wait_until 60 "Prometheus" curl -sf "$PROMETHEUS/-/ready" || exit 1
+    wait_until 120 "Tempo" curl -sf "$TEMPO/ready" || exit 1
+    wait_until 60 "Grafana" curl -sf "$GRAFANA/api/health" || exit 1
   fi
 }
 
@@ -639,6 +662,89 @@ test_config_client() {
   check "polar.greeting comes from it"        True "$(json 'next(s["name"] for s in d["propertySources"] if "polar.greeting" in s.get("properties", {})).startswith("configserver:")')"
 }
 
+test_metrics() {
+  log "Actuator metrics"
+  local s
+  for s in "${TRACED[@]}"; do
+    has "$s" || continue
+    CODE=$(curl -s -o "$WORK/body" -w '%{http_code}' "${BASE_URL[$s]}/actuator/prometheus")
+    check "$s /actuator/prometheus"           200 "$CODE"
+    check "$s JVM metrics tagged with its name" True \
+      "$(grep -q "^jvm_memory_used_bytes{.*application=\"$s\"" "$WORK/body" && echo True)"
+  done
+}
+
+prom_value() { # PromQL -> first sample's value
+  curl -s --get --data-urlencode "query=$1" "$PROMETHEUS/api/v1/query" \
+    | python3 -I -c 'import sys,json; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else "")' 2>/dev/null
+}
+prom_up() { [[ $(prom_value "up{job=\"$1\"}") == 1 ]]; }
+hex() { od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'; }
+# Services that sent spans for a trace, sorted and comma-separated.
+trace_services() { # trace-id
+  curl -sf "$TEMPO/api/traces/$1" | python3 -I -c '
+import sys, json
+d = json.load(sys.stdin)
+batches = d.get("batches") or d.get("resourceSpans") or d.get("trace", {}).get("resourceSpans", [])
+names = {a["value"]["stringValue"] for b in batches for a in b["resource"]["attributes"]
+         if a["key"] == "service.name"}
+print(",".join(sorted(names)))' 2>/dev/null
+}
+trace_has() { # trace-id comma-separated-services
+  local got; got=$(trace_services "$1")
+  [[ $got == "$2" ]]
+}
+
+test_observability() {
+  log "Observability (Prometheus, Tempo, Grafana)"
+  local s id
+  for s in "${TRACED[@]}"; do
+    has "$s" || continue
+    wait_until 30 "Prometheus to scrape $s" prom_up "$s" >/dev/null
+    check "Prometheus target $s is up"        1 "$(prom_value "up{job=\"$s\"}")"
+    check "Prometheus has $s JVM metrics"     True "$([[ $(prom_value "count(jvm_memory_used_bytes{application=\"$s\"})") -gt 0 ]] 2>/dev/null && echo True)"
+  done
+
+  # Requests carry our own W3C traceparent, so the trace can be fetched by id instead of searched.
+  for s in "${TRACED[@]}"; do
+    has "$s" || continue
+    id=$(hex 16)
+    curl -s -o /dev/null -H "traceparent: 00-$id-$(hex 8)-01" "${READY_URL[$s]}"
+    wait_until 60 "Tempo to receive the $s trace" trace_has "$id" "$s" >/dev/null
+    check "Tempo has a trace from $s"         "$s" "$(trace_services "$id")"
+  done
+  local flow_id= expected
+  if has order-service; then
+    # An order calls catalog-service, and its order-accepted event reaches dispatcher-service.
+    flow_id=$(hex 16); expected=catalog-service,order-service
+    has dispatcher-service && expected=catalog-service,dispatcher-service,order-service
+    curl -s -o "$WORK/body" -H "traceparent: 00-$flow_id-$(hex 8)-01" -H "Authorization: Bearer $B" \
+      -H 'Content-Type: application/json' -d '{"isbn":"1234567891","quantity":1}' "$ORDER/orders"
+    wait_until 60 "Tempo to receive the order trace" trace_has "$flow_id" "$expected" >/dev/null
+    check "order trace spans $expected"       "$expected" "$(trace_services "$flow_id")"
+  fi
+  if has edge-service; then
+    id=$(hex 16)
+    curl -s -o /dev/null -H "traceparent: 00-$id-$(hex 8)-01" "$EDGE/books"
+    wait_until 60 "Tempo to receive the edge trace" trace_has "$id" catalog-service,edge-service >/dev/null
+    check "edge /books trace spans catalog"   catalog-service,edge-service "$(trace_services "$id")"
+  fi
+
+  local g=(-s -u "$GRAFANA_AUTH")
+  BODY=$(curl "${g[@]}" "$GRAFANA/api/health")
+  check "Grafana database"                    ok "$(json 'd["database"]')"
+  BODY=$(curl "${g[@]}" "$GRAFANA/api/datasources")
+  check "Grafana datasources provisioned"     Loki,Prometheus,Tempo "$(json '",".join(sorted(x["name"] for x in d))')"
+  BODY=$(curl "${g[@]}" "$GRAFANA/api/search?type=dash-db")
+  check "Grafana dashboards provisioned"      "$(ls "$PB"/polar-deployment/docker/observability/grafana/dashboards/*.json | wc -l)" "$(json 'len(d)')"
+  BODY=$(curl "${g[@]}" --get --data-urlencode 'query=up' "$GRAFANA/api/datasources/proxy/uid/prometheus-thomas-vitale/api/v1/query")
+  check "Grafana queries Prometheus"          success "$(json 'd["status"]')"
+  if [[ -n $flow_id ]]; then
+    CODE=$(curl "${g[@]}" -o /dev/null -w '%{http_code}' "$GRAFANA/api/datasources/proxy/uid/tempo-thomas-vitale/api/traces/$flow_id")
+    check "Grafana fetches the order trace from Tempo" 200 "$CODE"
+  fi
+}
+
 run_tests() {
   if needs_keycloak; then
     log "Preparing tokens"
@@ -654,6 +760,8 @@ run_tests() {
   has edge-service && test_edge
   has quote-service && test_quote
   has quote-function && test_quote_function
+  test_metrics
+  needs_observability && test_observability
 
   log "Result: $PASS passed, $FAIL failed"
   (( FAIL == 0 ))

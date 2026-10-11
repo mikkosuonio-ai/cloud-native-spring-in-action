@@ -1,6 +1,6 @@
 ---
 name: smoke-test
-description: Start PolarBookshop services (catalog, order, dispatcher, config, edge with polar-ui, quote, quote-function) with Podman and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, order-accepted/order-dispatched messaging, config serving and catalog-service reading its configuration from config-service, and the edge gateway's OAuth2 login, token relay, CSRF and circuit breaker, and the quote endpoints of quote-service and quote-function's Spring Cloud Function endpoints. Use when asked to smoke test, run, or verify any of those services end to end.
+description: Start PolarBookshop services (catalog, order, dispatcher, config, edge with polar-ui, quote, quote-function) with Podman and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, order-accepted/order-dispatched messaging, config serving and catalog-service reading its configuration from config-service, and the edge gateway's OAuth2 login, token relay, CSRF and circuit breaker, the quote endpoints of quote-service and quote-function's Spring Cloud Function endpoints, actuator metrics, and (with observability) Prometheus scraping, Tempo traces across services and Grafana provisioning. Use when asked to smoke test, run, or verify any of those services end to end.
 ---
 
 # PolarBookshop smoke test (Podman)
@@ -16,6 +16,7 @@ bash .claude/skills/smoke-test/smoke-test.sh all dispatcher   # dispatcher-servi
 bash .claude/skills/smoke-test/smoke-test.sh all config       # config-service only (no backing services)
 bash .claude/skills/smoke-test/smoke-test.sh all quote        # quote-service only (no backing services)
 bash .claude/skills/smoke-test/smoke-test.sh all quote-function  # quote-function only (no backing services)
+bash .claude/skills/smoke-test/smoke-test.sh all order dispatcher observability  # + Prometheus, Tempo, Grafana
 bash .claude/skills/smoke-test/smoke-test.sh all --rebuild    # rebuild the selected images from this worktree's code first
 bash .claude/skills/smoke-test/smoke-test.sh test             # rerun the tests against a running stack
 bash .claude/skills/smoke-test/smoke-test.sh down             # remove all the containers
@@ -31,6 +32,11 @@ automatically:
 With both `catalog` and `config` selected, as in the default, catalog-service reads its
 configuration from config-service. Without `config`, it uses its own `application.yml`.
 
+`observability` adds Prometheus, Tempo and Grafana and switches on trace export. It goes on top of
+the given services, or the default ones if none are given, but the default set plus observability
+doesn't fit in memory. `order dispatcher observability` covers the whole order flow, and
+`edge observability` the gateway.
+
 `test` and `all` use the same selection, so run `test edge` against a stack started with
 `all edge`.
 
@@ -45,6 +51,8 @@ script reuses existing images, which may have been built from another worktree o
    - `edge` needs about 2.5 GiB and leaves ~0.7 GiB free.
    - Catalog alone needs about 1.5 GiB, dispatcher or config alone about 0.6 GiB, and quote or
      quote-function about 0.55 GiB each (they use only ~110-130 MB once running).
+   - `observability` adds about 0.3 GiB. `order dispatcher observability` leaves ~0.35 GiB free
+     and `edge observability` ~0.4 GiB.
    - An image build needs more.
 
    The script removes the selected app containers before building. Its estimate doesn't account
@@ -88,7 +96,9 @@ script reuses existing images, which may have been built from another worktree o
     override can't drop tempo and fluent-bit.
 
   On top of the compose settings it:
-  - sets the OTel exporters to `none`, since tempo and fluent-bit aren't started;
+  - sets the OTel log and metric exporters to `none` (logs go through fluent-bit in compose and
+    metrics through Prometheus scraping), and the trace exporter too unless `observability` is
+    selected;
   - always adds `host.docker.internal:host-gateway`, because order-service's compose entry lacks it
     but its JWT issuer uses that host;
   - sets `--memory 1g`, because otherwise the buildpack memory calculator sizes the heap from host
@@ -133,6 +143,24 @@ script reuses existing images, which may have been built from another worktree o
 
   Without config-service, the greeting must be `application.yml`'s "Welcome to the local book
   catalog!".
+- Checks each running service's `/actuator/prometheus` (catalog, order, dispatcher, config, edge),
+  whether or not `observability` is selected: it returns 200 and has JVM metrics tagged with the
+  service's `application` name.
+- With `observability`, starts `prometheus`, `tempo` and `grafana` from the compose file. Grafana's
+  `depends_on` also brings up `loki` and `fluent-bit`, which receive nothing. The compose images
+  are pinned by tag and digest; the pull adds `docker.io/` like for the other images. Tempo logs
+  errors about a `memcached` host its config names but compose doesn't define; they're harmless.
+  The checks:
+  - Prometheus has each running service's target up, with its JVM metrics;
+  - Tempo has a trace from each running service. The test sends its own W3C `traceparent` header
+    and fetches the trace by id, instead of searching;
+  - an order placed with a `traceparent` becomes one trace across order-service and
+    catalog-service, and dispatcher-service when it runs (the context travels through RabbitMQ);
+  - with edge-service, GET `/books` through the gateway is one trace across edge-service and
+    catalog-service;
+  - Grafana's database is ok, it has the Prometheus, Tempo and Loki datasources and the three
+    dashboards from `observability/grafana/`, and it can query Prometheus and fetch the order
+    trace from Tempo through its datasource proxy.
 - Treats a 200 from `/quotes` (quote-service) or `/randomQuote` (quote-function) as ready, because
   neither has an actuator.
 - Leaves the orders it creates in the database, because order-service has no delete endpoint.
@@ -146,16 +174,14 @@ Not verified yet, roughly in order of value:
    has no files for them, so enabling it would change nothing visible. The client is also only
    checked with the `testdata` profile; `prod` is checked on config-service alone. Refreshing
    configuration at runtime isn't covered either: no service exposes `/actuator/refresh`.
-2. **Observability.** Tempo, Loki, fluent-bit, Prometheus and Grafana are in the compose file but
-   never started. Tracing export is switched off and the fluentd log driver doesn't work on Podman.
-   Cheap checks would be:
-   - each service's `/actuator/prometheus` returns metrics;
-   - Prometheus can actually collect them;
-   - with Tempo running, one order request produces a single trace across edge, order and
-     catalog.
-
-   Logging through fluent-bit to Loki needs a workaround for the log driver. It costs memory, so it
-   would be its own selection.
+2. **Logs and the rest of observability.** Logs don't reach Loki: the apps' compose entries use
+   the `fluentd` log driver, which Podman 4.9 rejects, so fluent-bit gets nothing. A workaround
+   could ship `podman logs` output to fluent-bit's forward port, or use Podman's journald driver
+   with a fluent-bit input for it. Also not covered:
+   - Tempo's metrics generator, which remote-writes span metrics to Prometheus. Prometheus isn't
+     started with the remote-write receiver, so nothing arrives;
+   - whether the Grafana dashboards' panels actually show data;
+   - the full default set together with observability, which doesn't fit in memory.
 3. **Behaviour after a restart or a broker outage:**
    - restart rabbitmq while an order is in flight and check it still reaches DISPATCHED;
    - restart postgres or catalog-service and check the services recover.
@@ -174,5 +200,5 @@ Not verified yet, roughly in order of value:
    images. Native compilation doesn't fit in this machine's memory, so it belongs in CI or on a
    bigger machine.
 
-2 (metrics and Prometheus only) and 4 are small and check something the design depends on. 6 and
-7 need more resources than this machine has.
+4 is small and checks something the design depends on. 6 and 7 need more resources than this
+machine has.
