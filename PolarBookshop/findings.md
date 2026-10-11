@@ -4,8 +4,9 @@ Open issues found while running the smoke tests (`.claude/skills/smoke-test/`).
 
 ## order-service can lose an order-dispatched event
 
-**Seen:** 2026-10-11, once in three cold starts of the default stack
-(`smoke-test.sh all`, which starts catalog, order, dispatcher and config).
+**Seen:** 2026-10-11, in two of four cold starts of the default stack
+(`smoke-test.sh all`, which starts catalog, order, dispatcher and config). Both times it was the
+first order after startup (id 1). Runs against an already-warm stack have always passed.
 
 **What happened:** the check "order DISPATCHED by dispatcher-service" failed: the order stayed
 ACCEPTED for good.
