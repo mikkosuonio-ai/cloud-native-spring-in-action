@@ -590,8 +590,8 @@ test_quote_function() {
     req POST $QUOTE_FN/genreQuote "" "\"$g\"";  check "POST /genreQuote $g"                   200 "$CODE"
     check "genreQuote $g has that genre"       $g "$(json 'd["genre"]')"
   done
-  # The genre can't be converted to the enum. quote-service answers 400 for the same input.
-  req POST $QUOTE_FN/genreQuote "" '"POETRY"'; check "POST /genreQuote POETRY (current: 500)" 500 "$CODE"
+  req POST $QUOTE_FN/genreQuote "" '"POETRY"'; check "POST /genreQuote POETRY"              400 "$CODE"
+  check "error body names the path"            /genreQuote "$(json 'd["path"]')"
 
   # logQuote is a Consumer: 202 with no body, and the quote shows up in the log.
   local before=$(smoke_logged)
