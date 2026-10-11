@@ -1,46 +1,35 @@
 # Findings
 
-Open issues found while running the smoke tests (`.claude/skills/smoke-test/`).
+Issues found while running the smoke tests (`.claude/skills/smoke-test/`).
 
-## order-service can lose an order-dispatched event
+## Open
 
-**Seen:** 2026-10-11, in four of about ten runs that include order-service and
-dispatcher-service, cold starts and warm stacks alike.
+None.
 
-**Pattern:** the lost order is always the one placed right after order-service consumed an
-`order-dispatched` event for an order that doesn't exist. The dispatcher-service smoke test sends
-one (id above 900000000) just before the order-service test places its order, 0.3–2 s apart. In one
-`order dispatcher observability` run, orders 1 and 4 (each right after such an event) were lost,
-while orders 3 and 6 (placed later, with no unknown id in between) were dispatched. Not every
-unknown id leads to a loss.
+## Resolved
 
-**What happened:** the check "order DISPATCHED by dispatcher-service" failed: the order stayed
-ACCEPTED for good.
+### order-service could lose an order-dispatched event
 
-- order-service saved order 1 and published `order-accepted` (13:28:23.633).
-- dispatcher-service packed and labelled order 1 and published `order-dispatched` (13:28:23.706).
-- RabbitMQ delivered that message to `order-dispatched.order-service`, and order-service
-  acknowledged it. The queue stats showed 2 delivered, 2 acked, 0 redelivered, 0 unacked.
-- order-service never logged "The order with id 1 is dispatched" and logged no error. The row in
-  `polardb_order.orders` stayed ACCEPTED.
+Fixed in `81cd148`, 2026-10-11.
 
-The message just before it, `order-dispatched` for id 900006869 (from the dispatcher-service
-smoke test, an order that doesn't exist), was the first message order-service consumed after
-startup. It was also the first R2DBC query on the consumer side.
+**Symptom:** in about four of ten smoke-test runs with order-service and dispatcher-service, an
+order stayed ACCEPTED for good. dispatcher-service had dispatched it, and order-service had
+received and acknowledged the order-dispatched event, but logged neither an update nor an error.
 
-**Not lost for good:** the consumer was still alive. Rerunning the tests against the same stack
-dispatched the new order normally (72/72), and a second cold start passed too.
+**Cause:** `OrderService.submitOrder` was `@Transactional` and sent the order-accepted event from
+inside the transaction. With reactive transactions the RabbitMQ send isn't part of the database
+transaction (the `transacted: true` producer has no thread-bound transaction to join), so the
+event went out before the order was committed. dispatcher-service answers within milliseconds.
+When its order-dispatched event got there first, `findById` found no order, and the event was
+dropped silently. It hit most often right after an event for an unknown order id, because that
+lookup had already warmed up the consumer's database connection, so the next lookup beat the
+commit.
 
-**Where to look:** what `findById` returning empty for the unknown id does to the next element
-of the reactive pipeline. `OrderFunctions.dispatchOrder` subscribes to the stream itself
-(`Consumer<Flux<OrderDispatchedMessage>>` ending in `.subscribe()`), and
-`OrderService.consumeOrderDispatchedEvent` does `flatMap(findById)`, then `map`, then
-`flatMap(save)`. Messages are acknowledged as soon as they enter the Flux, so if processing drops
-a message, nothing redelivers it. Possible causes:
+**Fix:** `submitOrder` is no longer `@Transactional`. Its single `save` commits on its own, so the
+event is sent only after the order is visible. `OrderAcceptedEventTests` checks, from a separate
+JDBC connection, that the order is committed at the moment the event is sent. It failed before
+the fix. Afterwards, three cold and six warm smoke-test runs all passed.
 
-- a race between saving the new order and the dispatched event arriving;
-- the first R2DBC connection being set up on the consumer path;
-- an error swallowed inside the reactive pipeline.
-
-**How to reproduce:** `smoke-test.sh down && smoke-test.sh all`, repeated. Look at
-`podman logs order-service` for the missing "is dispatched" line.
+**Still worth knowing:** messages enter order-service's reactive consumer already acknowledged, so
+any message it drops (for example, if a database error ends the stream) isn't delivered again.
+Future work item 3 in the smoke-test skill covers restart and broker-outage behaviour.
