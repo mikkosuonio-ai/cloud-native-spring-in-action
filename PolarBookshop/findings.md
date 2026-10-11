@@ -4,9 +4,15 @@ Open issues found while running the smoke tests (`.claude/skills/smoke-test/`).
 
 ## order-service can lose an order-dispatched event
 
-**Seen:** 2026-10-11, in two of four cold starts of the default stack
-(`smoke-test.sh all`, which starts catalog, order, dispatcher and config). Both times it was the
-first order after startup (id 1). Runs against an already-warm stack have always passed.
+**Seen:** 2026-10-11, in four of about ten runs that include order-service and
+dispatcher-service, cold starts and warm stacks alike.
+
+**Pattern:** the lost order is always the one placed right after order-service consumed an
+`order-dispatched` event for an order that doesn't exist. The dispatcher-service smoke test sends
+one (id above 900000000) just before the order-service test places its order, 0.3–2 s apart. In one
+`order dispatcher observability` run, orders 1 and 4 (each right after such an event) were lost,
+while orders 3 and 6 (placed later, with no unknown id in between) were dispatched. Not every
+unknown id leads to a loss.
 
 **What happened:** the check "order DISPATCHED by dispatcher-service" failed: the order stayed
 ACCEPTED for good.
@@ -25,7 +31,8 @@ startup. It was also the first R2DBC query on the consumer side.
 **Not lost for good:** the consumer was still alive. Rerunning the tests against the same stack
 dispatched the new order normally (72/72), and a second cold start passed too.
 
-**Where to look:** `OrderFunctions.dispatchOrder` subscribes to the stream itself
+**Where to look:** what `findById` returning empty for the unknown id does to the next element
+of the reactive pipeline. `OrderFunctions.dispatchOrder` subscribes to the stream itself
 (`Consumer<Flux<OrderDispatchedMessage>>` ending in `.subscribe()`), and
 `OrderService.consumeOrderDispatchedEvent` does `flatMap(findById)`, then `map`, then
 `flatMap(save)`. Messages are acknowledged as soon as they enter the Flux, so if processing drops
