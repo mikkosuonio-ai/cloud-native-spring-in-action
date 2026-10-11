@@ -2,15 +2,15 @@
 # Smoke test for PolarBookshop services running under Podman.
 #
 # Usage: smoke-test.sh [up|test|down|all] [catalog] [order] [dispatcher] [config] [edge] [quote]
-#                      [--rebuild]
+#                      [quote-function] [--rebuild]
 #   up      build missing images (or all selected with --rebuild), start backing services + apps
 #   test    run the HTTP smoke tests against the running stack
 #   down    remove the app containers and the compose backing services
 #   all     up + test (default); leaves the stack running
 #
-# Services default to "catalog order dispatcher config"; edge and quote must be asked for,
-# since the whole set doesn't fit in this machine's memory. order needs catalog, and edge
-# needs catalog, order and polar-ui; those are added automatically.
+# Services default to "catalog order dispatcher config"; edge, quote and quote-function must
+# be asked for, since the whole set doesn't fit in this machine's memory. order needs catalog,
+# and edge needs catalog, order and polar-ui; those are added automatically.
 # Run from anywhere inside a worktree of the repository.
 set -uo pipefail
 
@@ -21,7 +21,7 @@ for a in "$@"; do
   case $a in
     up|test|down|all)        CMD=$a ;;
     --rebuild)               REBUILD=1 ;;
-    catalog|order|dispatcher|config|edge|quote) SELECTED+=("$a") ;;
+    catalog|order|dispatcher|config|edge|quote|quote-function) SELECTED+=("$a") ;;
     *) sed -n '2,14p' "$0"; exit 2 ;;
   esac
 done
@@ -34,18 +34,19 @@ selected dispatcher && SERVICES+=(dispatcher-service)
 selected config && SERVICES+=(config-service)
 selected edge && SERVICES+=(polar-ui edge-service)
 selected quote && SERVICES+=(quote-service)
+selected quote-function && SERVICES+=(quote-function)
 ALL_APPS=(catalog-service order-service dispatcher-service config-service polar-ui edge-service
-          quote-service)
+          quote-service quote-function)
 # Services absent from the compose file: published port for `podman run`.
-declare -A STANDALONE_PORT=([quote-service]=9101)
+declare -A STANDALONE_PORT=([quote-service]=9101 [quote-function]=9102)
 # Services whose build.gradle asks for a GraalVM native image; built as JVM images instead,
 # because native compilation needs more memory than this machine has.
-JVM_INSTEAD_OF_NATIVE=" quote-service "
-# JDK each build runs on, installed with sdkman. Spring Native 0.12 (quote-service) can't read
+JVM_INSTEAD_OF_NATIVE=" quote-service quote-function "
+# JDK each build runs on, installed with sdkman. Spring Native 0.12 (quote-service, quote-function) can't read
 # Java 21 class files during AOT processing, so it builds on 17. Interim until every project is
 # on the same JDK and builds can use a preset JAVA_HOME.
 JDKS=$HOME/.sdkman/candidates/java
-declare -A JDK=([quote-service]=$JDKS/17.0.20-tem)
+declare -A JDK=([quote-service]=$JDKS/17.0.20-tem [quote-function]=$JDKS/17.0.20-tem)
 DEFAULT_JDK=$JDKS/21.0.12+1.1-tem
 has() { [[ " ${SERVICES[*]} " == *" $1 "* ]]; }
 needs_keycloak() { has catalog-service; }
@@ -66,8 +67,10 @@ declare -A READY_URL=(
   [polar-ui]=http://localhost:9004/
   [edge-service]=http://localhost:9000/actuator/health/readiness
   [quote-service]=http://localhost:9101/quotes
+  [quote-function]=http://localhost:9102/randomQuote
 )
 QUOTE=http://localhost:9101
+QUOTE_FN=http://localhost:9102
 EDGE=http://localhost:9000
 CATALOG=http://localhost:9001
 ORDER=http://localhost:9002
@@ -536,10 +539,11 @@ test_edge() {
 }
 
 # Collects the authors returned by N calls to URL, as a sorted, comma-separated list.
-authors_from() { # url n
-  local i
+authors_from() { # url n [json-body to POST]
+  local i args=(-s)
+  [[ -n ${3:-} ]] && args+=(-H 'Content-Type: application/json' -d "$3")
   for i in $(seq "$2"); do
-    curl -s "$1" | python3 -I -c 'import sys,json; print(json.load(sys.stdin)["author"])' 2>/dev/null
+    curl "${args[@]}" "$1" | python3 -I -c 'import sys,json; print(json.load(sys.stdin)["author"])' 2>/dev/null
   done | sort -u | paste -sd, -
 }
 
@@ -565,6 +569,45 @@ test_quote() {
   check "random FANTASY covers both quotes" Casper,Dobby "$(authors_from $QUOTE/quotes/random/FANTASY 20)"
 }
 
+smoke_logged() { podman logs quote-function 2>&1 | grep -c "Quote: 'Smoke' by Tester"; }
+logged_quotes() { podman logs quote-function 2>&1 | grep -c "QuoteFunctions *: Quote: '"; }
+
+test_quote_function() {
+  log "quote-function ($QUOTE_FN)"
+  # GET / runs the configured default function, allQuotes (which delays its output by 1 s).
+  req GET $QUOTE_FN/;                          check "GET / (default allQuotes)"            200 "$CODE"
+  check "six quotes"                           6 "$(json 'len(d)')"
+  check "quotes have content/author/genre"     True "$(json 'all({"content","author","genre"} <= q.keys() for q in d)')"
+  check "two quotes per genre"                 True "$(json '{g: [q["genre"] for q in d].count(g) for g in ("ADVENTURE","FANTASY","SCIENCE_FICTION")} == {"ADVENTURE":2,"FANTASY":2,"SCIENCE_FICTION":2}')"
+  req GET $QUOTE_FN/allQuotes;                 check "GET /allQuotes"                       200 "$CODE"
+  check "allQuotes returns six quotes"         6 "$(json 'len(d)')"
+
+  req GET $QUOTE_FN/randomQuote;               check "GET /randomQuote"                     200 "$CODE"
+  check "random quote is a known author"       True "$(json 'd["author"] in ("Abigail","Beatrix","Casper","Dobby","Eileen","Flora")')"
+
+  local g
+  for g in ADVENTURE FANTASY SCIENCE_FICTION; do
+    req POST $QUOTE_FN/genreQuote "" "\"$g\"";  check "POST /genreQuote $g"                   200 "$CODE"
+    check "genreQuote $g has that genre"       $g "$(json 'd["genre"]')"
+  done
+  # The genre can't be converted to the enum. quote-service answers 400 for the same input.
+  req POST $QUOTE_FN/genreQuote "" '"POETRY"'; check "POST /genreQuote POETRY (current: 500)" 500 "$CODE"
+
+  # logQuote is a Consumer: 202 with no body, and the quote shows up in the log.
+  local before=$(smoke_logged)
+  req POST $QUOTE_FN/logQuote "" '{"content":"Smoke","author":"Tester","genre":"FANTASY"}'
+  check "POST /logQuote"                       202 "$CODE"
+  check "logQuote logs the quote"              $(( before + 1 )) "$(smoke_logged)"
+  before=$(logged_quotes)
+  req POST $QUOTE_FN/genreQuote,logQuote "" '"FANTASY"'
+  check "POST /genreQuote,logQuote"            202 "$CODE"
+  check "composed function logs one quote"     $(( before + 1 )) "$(logged_quotes)"
+
+  # Regression checks for nextInt(size - 1), which never picked the last quote.
+  check "randomQuote covers the last quote"    True "$([[ $(authors_from $QUOTE_FN/randomQuote 40) == *Flora* ]] && echo True)"
+  check "genreQuote FANTASY covers both quotes" Casper,Dobby "$(authors_from $QUOTE_FN/genreQuote 20 '"FANTASY"')"
+}
+
 run_tests() {
   if needs_keycloak; then
     log "Preparing tokens"
@@ -578,6 +621,7 @@ run_tests() {
   has order-service && test_order
   has edge-service && test_edge
   has quote-service && test_quote
+  has quote-function && test_quote_function
 
   log "Result: $PASS passed, $FAIL failed"
   (( FAIL == 0 ))
