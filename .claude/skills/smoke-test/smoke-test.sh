@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Smoke test for PolarBookshop services running under Podman.
 #
-# Usage: smoke-test.sh [up|test|down|all] [catalog] [order] [dispatcher] [config] [--rebuild]
+# Usage: smoke-test.sh [up|test|down|all] [catalog] [order] [dispatcher] [config] [edge] [--rebuild]
 #   up      build missing images (or all selected with --rebuild), start backing services + apps
 #   test    run the HTTP smoke tests against the running stack
 #   down    remove the app containers and the compose backing services
 #   all     up + test (default); leaves the stack running
 #
-# Services default to all of them. order-service needs catalog-service, so selecting order
-# also selects catalog. Run from anywhere inside a worktree of the repository.
+# Services default to "catalog order dispatcher config"; edge must be asked for, since the
+# whole set doesn't fit in this machine's memory. order needs catalog, and edge needs
+# catalog, order and polar-ui; those are added automatically.
+# Run from anywhere inside a worktree of the repository.
 set -uo pipefail
 
 CMD=all
@@ -18,21 +20,23 @@ for a in "$@"; do
   case $a in
     up|test|down|all)        CMD=$a ;;
     --rebuild)               REBUILD=1 ;;
-    catalog|order|dispatcher|config) SELECTED+=("$a") ;;
-    *) sed -n '2,11p' "$0"; exit 2 ;;
+    catalog|order|dispatcher|config|edge) SELECTED+=("$a") ;;
+    *) sed -n '2,13p' "$0"; exit 2 ;;
   esac
 done
 (( ${#SELECTED[@]} )) || SELECTED=(catalog order dispatcher config)
 selected() { [[ " ${SELECTED[*]} " == *" $1 "* ]]; }
 SERVICES=()
-selected catalog || selected order && SERVICES+=(catalog-service)
-selected order && SERVICES+=(order-service)
+selected catalog || selected order || selected edge && SERVICES+=(catalog-service)
+selected order || selected edge && SERVICES+=(order-service)
 selected dispatcher && SERVICES+=(dispatcher-service)
 selected config && SERVICES+=(config-service)
-ALL_APPS=(catalog-service order-service dispatcher-service config-service)
+selected edge && SERVICES+=(polar-ui edge-service)
+ALL_APPS=(catalog-service order-service dispatcher-service config-service polar-ui edge-service)
 has() { [[ " ${SERVICES[*]} " == *" $1 "* ]]; }
 needs_keycloak() { has catalog-service; }
 needs_rabbit() { has order-service || has dispatcher-service; }
+needs_redis() { has edge-service; }
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "Not inside a git worktree" >&2; exit 2; }
 PB=$ROOT/PolarBookshop
@@ -40,7 +44,15 @@ COMPOSE=$PB/polar-deployment/docker/docker-compose.yml
 [[ -f $COMPOSE ]] || { echo "Compose file not found: $COMPOSE" >&2; exit 2; }
 SOCK=/run/user/$(id -u)/podman/podman.sock
 NET=docker_default   # network podman-compose creates for project "docker"
-declare -A PORT=([catalog-service]=9001 [order-service]=9002 [dispatcher-service]=9003 [config-service]=8888)
+declare -A READY_URL=(
+  [catalog-service]=http://localhost:9001/actuator/health/readiness
+  [order-service]=http://localhost:9002/actuator/health/readiness
+  [dispatcher-service]=http://localhost:9003/actuator/health/readiness
+  [config-service]=http://localhost:8888/actuator/health/readiness
+  [polar-ui]=http://localhost:9004/
+  [edge-service]=http://localhost:9000/actuator/health/readiness
+)
+EDGE=http://localhost:9000
 CATALOG=http://localhost:9001
 ORDER=http://localhost:9002
 DISPATCHER=http://localhost:9003
@@ -114,10 +126,13 @@ up() {
   local s
   for s in "${SERVICES[@]}"; do podman rm -f "$s" >/dev/null 2>&1; done
 
-  # Rough figures seen in practice: keycloak+postgres ~1 GB, each app ~350 MB, rabbitmq ~100 MB.
+  # Rough figures seen in practice: keycloak+postgres ~1 GB, each Spring app ~350 MB,
+  # rabbitmq ~100 MB, polar-ui + redis ~100 MB.
   local avail_mb need_mb=$(( 200 + 350 * ${#SERVICES[@]} ))
+  has polar-ui && (( need_mb -= 350 ))
   needs_keycloak && (( need_mb += 1000 ))
   needs_rabbit && (( need_mb += 100 ))
+  needs_redis && (( need_mb += 100 ))
   avail_mb=$(free -m | awk '/^Mem:/ {print $7}')
   echo "Available memory: ${avail_mb} MiB (stack needs about ${need_mb} MiB)"
   (( avail_mb < need_mb )) && echo "WARNING: stack may be OOM-killed. Stop other containers / Gradle daemons first."
@@ -126,6 +141,7 @@ up() {
   systemctl --user start podman.socket && echo "podman.socket active ($SOCK)"
 
   for s in "${SERVICES[@]}"; do
+    [[ -d $PB/$s ]] || continue   # prebuilt image (polar-ui); podman run pulls it
     if (( REBUILD )) || ! podman image exists "$s"; then
       build_image "$s"
     else
@@ -136,6 +152,7 @@ up() {
   local backing=()
   needs_keycloak && backing+=(polar-postgres polar-keycloak)
   needs_rabbit && backing+=(polar-rabbitmq)
+  needs_redis && backing+=(polar-redis)
   # Podman has no unqualified-search registries here, so short names like
   # "rabbitmq:3.13-management" only work once the image is in local storage.
   local img
@@ -162,13 +179,18 @@ up() {
 
   local args
   for s in "${SERVICES[@]}"; do
+    # edge-service fetches the issuer's OpenID configuration at startup and exits if
+    # Keycloak isn't up yet; the other services only contact Keycloak on first use.
+    if [[ $s == edge-service ]]; then
+      wait_until 180 "Keycloak realm" curl -sf "$KEYCLOAK/realms/PolarBookshop" || exit 1
+    fi
     log "Starting $s"
     mapfile -d '' args < <(run_args "$s")
     podman run -d --replace "${args[@]}" >/dev/null || exit 1
   done
 
   for s in "${SERVICES[@]}"; do
-    wait_until 180 "$s readiness" curl -sf "http://localhost:${PORT[$s]}/actuator/health/readiness" \
+    wait_until 180 "$s readiness" curl -sf "${READY_URL[$s]}" \
       || { podman logs --tail 40 "$s"; exit 1; }
   done
   if needs_keycloak; then
@@ -389,6 +411,99 @@ test_config() {
   check "YAML contains the greeting"         True "$([[ $BODY == *"$greeting"* ]] && echo True)"
 }
 
+# edge METHOD PATH JAR [JSON] [nocsrf] -> request through edge-service with the session in cookie
+# jar JAR; sets $CODE, $BODY and $LOCATION. Sends the XSRF-TOKEN cookie as X-XSRF-TOKEN unless
+# "nocsrf" is given.
+edge() {
+  local args=(-s -c "$3" -b "$3" -o "$WORK/body" -D "$WORK/headers" -w '%{http_code} %{redirect_url}' -X "$1")
+  [[ -n ${4:-} ]] && args+=(-H 'Content-Type: application/json' -d "$4")
+  if [[ ${5:-} != nocsrf ]]; then
+    local xsrf; xsrf=$(awk '$6 == "XSRF-TOKEN" {print $7}' "$3" 2>/dev/null | tail -1)
+    [[ -n $xsrf ]] && args+=(-H "X-XSRF-TOKEN: $xsrf")
+  fi
+  read -r CODE LOCATION < <(curl "${args[@]}" "$EDGE$2"); BODY=$(cat "$WORK/body")
+}
+
+# Logs USER in through edge-service's OAuth2 authorization-code flow, as a browser would.
+# Keycloak is addressed as host.docker.internal:8080 (the issuer edge-service uses), which
+# curl connects to on localhost.
+edge_login() { # user jar
+  local jar=$2 url action cookies kc=(--connect-to host.docker.internal:8080:localhost:8080)
+  rm -f "$jar"
+  url=$(curl -s -c "$jar" -b "$jar" -o /dev/null -w '%{redirect_url}' "$EDGE/oauth2/authorization/keycloak")
+  [[ $url == http://host.docker.internal:8080/* ]] || return 1
+  curl -s "${kc[@]}" -D "$WORK/kc-headers" -o "$WORK/kc-login.html" "$url" || return 1
+  action=$(python3 -I -c '
+import sys, re, html
+form = re.search(r"<form[^>]*id=\"kc-form-login\"[^>]*>", open(sys.argv[1]).read())
+action = form and re.search(r"action=\"([^\"]+)\"", form.group(0))
+print(html.unescape(action.group(1)) if action else "")' "$WORK/kc-login.html")
+  [[ -n $action ]] || return 1
+  # Keycloak marks its login-session cookies Secure, and curl won't store Secure cookies
+  # received over plain http from a host other than localhost, so pass them on by hand.
+  cookies=$(sed -n 's/^[Ss]et-[Cc]ookie: *\([^;]*\);.*/\1/p' "$WORK/kc-headers" | paste -sd ';' -)
+  url=$(curl -s "${kc[@]}" -H "Cookie: $cookies" -o /dev/null -w '%{redirect_url}' \
+    --data-urlencode "username=$1" --data-urlencode password=password -d credentialId= "$action")
+  [[ $url == "$EDGE/login/oauth2/code/"* ]] || return 1
+  url=$(curl -s -c "$jar" -b "$jar" -o /dev/null -w '%{redirect_url}' "$url")
+  [[ $url == "$EDGE/" ]]
+}
+
+test_edge() {
+  local anon=$WORK/anon.jar ij=$WORK/isabelle.jar bj=$WORK/bjorn.jar
+  local isbn="98$(date +%s | tail -c 9)"
+  local book="{\"isbn\":\"$isbn\",\"title\":\"Edge Smoke Test\",\"author\":\"Smoke Tester\",\"price\":7.5,\"publisher\":\"Polarsophia\"}"
+
+  log "edge-service ($EDGE)"
+  req GET $EDGE/actuator/health;            check "health status"                     UP "$(json 'd["status"]')"
+  check "health redis component"            UP "$(json 'd["components"]["redis"]["status"]')"
+  req GET $EDGE/actuator/health/liveness;   check "liveness probe"                    200 "$CODE"
+  req GET $EDGE/actuator/health/readiness;  check "readiness probe (incl. redis)"     200 "$CODE"
+  req GET $EDGE/actuator/gateway/routes
+  check "gateway routes configured"         True "$(json '{"spa-route","catalog-route","order-route"} <= {r["route_id"] for r in d}')"
+
+  edge GET / "$anon";                       check "GET / (polar-ui via spa-route)"    200 "$CODE"
+  check "SPA page is HTML"                  True "$(grep -qi '<html' "$WORK/body" && echo True)"
+  edge GET /books "$anon";                  check "GET /books anonymously"            200 "$CODE"
+  check "books returned from catalog"       True "$(json 'len(d) >= 2')"
+  check "rate limiter header present"       True "$(grep -qi '^X-RateLimit-Remaining:' "$WORK/headers" && echo True)"
+  edge GET /user "$anon";                   check "GET /user anonymously"             401 "$CODE"
+  edge GET /orders "$anon";                 check "GET /orders anonymously"           401 "$CODE"
+  edge POST /books "$anon" "$book";         check "POST /books anonymously"           401 "$CODE"
+
+  check "isabelle logs in via Keycloak"     True "$(edge_login isabelle "$ij" && echo True)"
+  edge GET /user "$ij";                     check "GET /user as isabelle"             200 "$CODE" "$BODY"
+  check "user is isabelle"                  isabelle "$(json 'd["username"]')"
+  check "isabelle has employee role"        True "$(json '"employee" in d["roles"]')"
+  edge POST /books "$ij" "$book" nocsrf;    check "POST /books without CSRF token"    403 "$CODE"
+  edge POST /books "$ij" "$book";           check "POST /books as isabelle (relayed)" 201 "$CODE" "$BODY"
+  edge DELETE "/books/$isbn" "$ij";         check "DELETE /books as isabelle"         204 "$CODE"
+
+  check "bjorn logs in via Keycloak"        True "$(edge_login bjorn "$bj" && echo True)"
+  edge GET /user "$bj";                     check "user is bjorn"                     bjorn "$(json 'd["username"]')"
+  edge POST /books "$bj" "$book";           check "POST /books as bjorn (customer)"   403 "$CODE"
+  edge POST /orders "$bj" '{"isbn":"1234567891","quantity":1}'
+  check "POST /orders as bjorn (relayed)"   200 "$CODE" "$BODY"
+  check "order accepted"                    ACCEPTED "$(json 'd["status"]')"
+  local id; id=$(json 'd["id"]')
+  edge GET /orders "$bj";                   check "GET /orders as bjorn"              200 "$CODE"
+  check "bjorn's order listed"              True "$(json "any(o['id'] == $id for o in d)")"
+
+  edge POST /logout "$ij";                  check "POST /logout as isabelle"          302 "$CODE"
+  check "logout redirects to Keycloak"      True "$([[ $LOCATION == http://host.docker.internal:8080/realms/PolarBookshop/protocol/openid-connect/logout* ]] && echo True)"
+  edge GET /user "$ij";                     check "GET /user after logout"            401 "$CODE"
+
+  # Circuit breaker: with catalog-service frozen, reads fall back to an empty 200 and
+  # writes to 503 (after the 5 s time limit).
+  podman pause catalog-service >/dev/null
+  edge GET /books "$anon";                  check "GET /books, catalog down: fallback" 200 "$CODE"
+  check "fallback body is empty"            "" "$BODY"
+  edge POST /books "$bj" "$book";           check "POST /books, catalog down"         503 "$CODE"
+  podman unpause catalog-service >/dev/null
+  edge GET /books "$anon";                  check "GET /books, catalog back"          200 "$CODE"
+  check "books returned again"              True "$(json 'len(d) >= 2')"
+}
+
 run_tests() {
   if needs_keycloak; then
     log "Preparing tokens"
@@ -400,6 +515,7 @@ run_tests() {
   has catalog-service && test_catalog
   has dispatcher-service && test_dispatcher
   has order-service && test_order
+  has edge-service && test_edge
 
   log "Result: $PASS passed, $FAIL failed"
   (( FAIL == 0 ))

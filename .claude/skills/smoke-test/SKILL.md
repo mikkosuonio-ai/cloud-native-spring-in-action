@@ -1,6 +1,6 @@
 ---
 name: smoke-test
-description: Start PolarBookshop catalog-service, order-service, dispatcher-service and config-service with Podman (with postgres, keycloak and rabbitmq) and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, the order-accepted/order-dispatched messaging and config serving. Use when asked to smoke test, run, or verify any of those services end to end.
+description: Start PolarBookshop services (catalog, order, dispatcher, config, edge with polar-ui) with Podman and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, order-accepted/order-dispatched messaging, config serving, and the edge gateway's OAuth2 login, token relay, CSRF and circuit breaker. Use when asked to smoke test, run, or verify any of those services end to end.
 ---
 
 # PolarBookshop smoke test (Podman)
@@ -9,7 +9,8 @@ This server has Podman 4.9 and podman-compose, and no Docker. The script `smoke-
 skill directory does the whole job. Run it from the worktree root:
 
 ```bash
-bash .claude/skills/smoke-test/smoke-test.sh all              # up + test all services, leaves the stack running
+bash .claude/skills/smoke-test/smoke-test.sh all              # up + test catalog, order, dispatcher, config
+bash .claude/skills/smoke-test/smoke-test.sh all edge         # edge-service (+ catalog, order, polar-ui)
 bash .claude/skills/smoke-test/smoke-test.sh all catalog      # catalog-service only (postgres + keycloak)
 bash .claude/skills/smoke-test/smoke-test.sh all dispatcher   # dispatcher-service only (rabbitmq)
 bash .claude/skills/smoke-test/smoke-test.sh all config       # config-service only (no backing services)
@@ -18,8 +19,15 @@ bash .claude/skills/smoke-test/smoke-test.sh test             # rerun the tests 
 bash .claude/skills/smoke-test/smoke-test.sh down             # remove all the containers
 ```
 
-Services default to `catalog order dispatcher config`; any combination can be given. Selecting `order`
-also selects `catalog`, because order-service looks books up in catalog-service.
+Services default to `catalog order dispatcher config`, and any combination can be given. `edge` is
+not in the default because everything together doesn't fit in memory. Dependencies are added
+automatically:
+- `order` adds `catalog`, because order-service looks books up in catalog-service;
+- `edge` adds `catalog`, `order` and the prebuilt `polar-ui` image, because the gateway routes to
+  them.
+
+`test` and `all` use the same selection, so run `test edge` against a stack started with
+`all edge`.
 
 Pass `--rebuild` when the user wants to test the current code in the worktree. Without it, the
 script reuses existing images, which may have been built from another worktree or an older commit.
@@ -27,13 +35,16 @@ script reuses existing images, which may have been built from another worktree o
 ## Steps
 
 1. **Check memory first.** The machine has ~4 GB RAM and no swap. Run `free -h` and make sure no
-   Gradle daemons or other containers are holding memory. The full stack needs about 2.7 GiB
-   available and leaves only ~0.5 GiB free. Catalog alone needs about 1.5 GiB, and dispatcher or
-   config alone about 0.6 GiB. An image build needs more. The script removes the selected app containers before building. Its estimate
-   doesn't account for backing services that are already running, so its warning can be
-   overcautious on a rerun.
-2. Run `smoke-test.sh all` (add `--rebuild` if needed) with a Bash timeout of about 10 minutes.
-   The first build of each service pulls its Paketo builder.
+   Gradle daemons or other containers are holding memory.
+   - The default stack needs about 2.7 GiB available and leaves only ~0.5 GiB free.
+   - `edge` needs about 2.5 GiB and leaves ~0.7 GiB free.
+   - Catalog alone needs about 1.5 GiB, and dispatcher or config alone about 0.6 GiB.
+   - An image build needs more.
+
+   The script removes the selected app containers before building. Its estimate doesn't account
+   for backing services that are already running, so its warning can be overcautious on a rerun.
+2. Run `smoke-test.sh all` (add a selection and/or `--rebuild` if needed) with a Bash timeout of
+   about 10 minutes. The first build of each service pulls its Paketo builder.
 3. Report the PASS/FAIL lines to the user. The script exits non-zero if any check fails. On a
    failure, look at `podman logs <service>` before reporting.
 4. Ask the user whether to keep the stack running or run `smoke-test.sh down`.
@@ -46,14 +57,17 @@ script reuses existing images, which may have been built from another worktree o
 - Pulls missing backing-service images with a `docker.io/` prefix. Podman here has no
   unqualified-search registries, so short names such as `rabbitmq:3.13-management` only resolve
   once the image is in local storage.
-- Starts only the backing services the selection needs with podman-compose: `polar-postgres` and
-  `polar-keycloak` for catalog and order, and `polar-rabbitmq` for order and dispatcher. If none
-  are needed it skips compose entirely, because `podman-compose up` with no service names starts
-  every service in the file. It then checks that each container is running, because podman-compose exits 0
-  even when a container fails to start.
-- Starts the app services with `podman run` on the `docker_default` network. It generates the
-  arguments (env, ports, extra hosts, image) from the compose file with PyYAML. It can't use
-  compose for the apps because:
+- Starts only the backing services the selection needs with podman-compose:
+  - `polar-postgres` and `polar-keycloak` for catalog, order and edge;
+  - `polar-rabbitmq` for order and dispatcher;
+  - `polar-redis` for edge.
+
+  If none are needed it skips compose entirely, because `podman-compose up` with no service names
+  starts every service in the file. Otherwise it checks that each container is running, because
+  podman-compose exits 0 even when a container fails to start.
+- Starts the app services and polar-ui with `podman run` on the `docker_default` network. It
+  generates the arguments (env, ports, extra hosts, image) from the compose file with PyYAML. It
+  can't use compose for these because:
   - the compose file uses the `fluentd` log driver, which Podman 4.9 rejects;
   - podman-compose merges `depends_on` from override files instead of replacing them, so an
     override can't drop tempo and fluent-bit.
@@ -64,6 +78,9 @@ script reuses existing images, which may have been built from another worktree o
     but its JWT issuer uses that host;
   - sets `--memory 1g`, because otherwise the buildpack memory calculator sizes the heap from host
     RAM (over 2 GB).
+- Starts edge-service only once the Keycloak realm responds. edge-service fetches the issuer's
+  OpenID configuration at startup and exits if Keycloak isn't up; the other services only contact
+  Keycloak on first use.
 - Waits until each service's RabbitMQ consumer is attached: `order-dispatched.order-service` and
   `order-accepted.dispatcher-service`. The services report ready even before RabbitMQ is reachable.
 - Reads messages through temporary `smoke-test.*` queues bound to the `order-accepted` and
@@ -73,6 +90,17 @@ script reuses existing images, which may have been built from another worktree o
   inside the dev container.
 - Requests tokens with `Host: host.docker.internal:8080`, so the token issuer matches the
   services' configured `issuer-uri`.
+- Logs users in to edge-service with curl, following the browser flow:
+  1. `/oauth2/authorization/keycloak`;
+  2. the Keycloak login form at `host.docker.internal:8080`, reached through
+     `--connect-to ...:localhost:8080`;
+  3. the credentials POST;
+  4. the redirect back to `/login/oauth2/code/keycloak`.
+
+  Keycloak marks its login-session cookies `Secure`, and curl won't store those when they come
+  over plain HTTP from a host other than localhost. The script therefore copies them from the
+  login page's `Set-Cookie` headers into the POST by hand. Requests that change state send the
+  `XSRF-TOKEN` cookie back as `X-XSRF-TOKEN`.
 
 ## Checks
 
@@ -115,5 +143,19 @@ it needs network access), not the local `PolarBookshop/config-repo/` directory. 
 
 None of the other services use config-service here. Their `spring.cloud.config.enabled` is false,
 and catalog-service doesn't include the config client.
+
+**edge-service:**
+- health, redis, liveness and readiness are UP, and the spa, catalog and order routes are
+  configured;
+- `/` serves polar-ui's HTML;
+- `/books` works anonymously and carries `X-RateLimit-Remaining`;
+- anonymous `/user`, `/orders` and POST `/books` return 401;
+- isabelle and bjorn log in via Keycloak, and `/user` returns the right username and roles;
+- a POST without the CSRF header returns 403;
+- through token relay, isabelle creates and deletes a book (201/204), bjorn is refused (403), and
+  bjorn places an order and sees it listed;
+- logout returns 302 to Keycloak's end-session endpoint, after which `/user` returns 401;
+- with catalog-service paused, GET `/books` falls back to an empty 200 and POST returns 503; after
+  unpausing, books come back.
 
 Orders created by the tests stay in the database; order-service has no delete endpoint.
