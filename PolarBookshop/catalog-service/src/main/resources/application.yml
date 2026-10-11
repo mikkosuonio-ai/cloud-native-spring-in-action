@@ -28,7 +28,7 @@ spring:
         max-interval: 2000 # 2s
         multiplier: 1.1
   profiles:
-    active: test-data
+    active: testdata
   datasource:
     username: user
     password: password
