@@ -592,6 +592,8 @@ test_quote_function() {
   done
   req POST $QUOTE_FN/genreQuote "" '"POETRY"'; check "POST /genreQuote POETRY"              400 "$CODE"
   check "error body names the path"            /genreQuote "$(json 'd["path"]')"
+  req POST $QUOTE_FN/genreQuote;               check "POST /genreQuote without a genre"     400 "$CODE"
+  req GET $QUOTE_FN/genreQuote;                check "GET /genreQuote without a genre"      400 "$CODE"
 
   # logQuote is a Consumer: 202 with no body, and the quote shows up in the log.
   local before=$(smoke_logged)
