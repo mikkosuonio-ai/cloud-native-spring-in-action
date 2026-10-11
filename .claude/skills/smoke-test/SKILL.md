@@ -113,84 +113,49 @@ script reuses existing images, which may have been built from another worktree o
   over plain HTTP from a host other than localhost. The script therefore copies them from the
   login page's `Set-Cookie` headers into the POST by hand. Requests that change state send the
   `XSRF-TOKEN` cookie back as `X-XSRF-TOKEN`.
+- Tests config-service against https://github.com/PolarBookshop/config-repo, which it clones at
+  startup (so it needs network access), not the local `PolarBookshop/config-repo/` directory. The
+  two differ in `catalog-service.yml`'s greeting, so the tests check structure rather than exact
+  values.
+- Treats a 200 from `/quotes` (quote-service) or `/randomQuote` (quote-function) as ready, because
+  neither has an actuator.
+- Leaves the orders it creates in the database, because order-service has no delete endpoint.
 
-## Checks
+## Future work
 
-**catalog-service:** GET `/` greeting; health, db, liveness and readiness are UP; GET `/books`
-returns the testdata books; GET a known and an unknown ISBN (200/404); POST without a token (401);
-POST and DELETE as customer bjorn (403); POST as employee isabelle (201, `createdBy` set); GET the
-created book; PUT (200, version 2); POST an invalid book (400); DELETE as isabelle (204); then GET
-returns 404.
+Not verified yet, roughly in order of value:
 
-**order-service:**
-- health, r2dbc, rabbit, liveness and readiness are UP;
-- GET and POST `/orders` without a token return 401;
-- an order as bjorn for ISBN 1234567891 is ACCEPTED, with the book name and price taken from
-  catalog-service and `createdBy` set;
-- the `order-accepted` event carries the new order id (read from a temporary queue bound to the
-  exchange);
-- an unknown ISBN gives a REJECTED order;
-- quantity 0, quantity 6 and a missing ISBN return 400;
-- bjorn sees the order and isabelle doesn't;
-- the order becomes DISPATCHED. With dispatcher-service running, this is the real end-to-end flow.
-  Without it, the test stands in for dispatcher-service by publishing `{"orderId": id}` to the
-  `order-dispatched` exchange.
+1. **Services reading their settings from config-service.** All four clients have
+   `spring.cloud.config.enabled: false`, and catalog-service doesn't include the config client at
+   all, so config-service is only tested on its own. A check could start catalog-service with
+   config enabled and confirm the greeting comes from the config repo.
+2. **Observability.** Tempo, Loki, fluent-bit, Prometheus and Grafana are in the compose file but
+   never started. Tracing export is switched off and the fluentd log driver doesn't work on Podman.
+   Cheap checks would be:
+   - each service's `/actuator/prometheus` returns metrics;
+   - Prometheus can actually collect them;
+   - with Tempo running, one order request produces a single trace across edge, order and
+     catalog.
 
-**dispatcher-service:**
-- health, rabbit, liveness and readiness are UP;
-- the `packlabel-in-0` binding is running;
-- publishing `{"orderId": id}` to `order-accepted` makes it emit `order-dispatched` with the same
-  id. The id is above 900000000, so order-service ignores it if running.
+   Logging through fluent-bit to Loki needs a workaround for the log driver. It costs memory, so it
+   would be its own selection.
+3. **Behaviour after a restart or a broker outage:**
+   - restart rabbitmq while an order is in flight and check it still reaches DISPATCHED;
+   - restart postgres or catalog-service and check the services recover.
 
-**config-service:** It serves https://github.com/PolarBookshop/config-repo (cloned at startup, so
-it needs network access), not the local `PolarBookshop/config-repo/` directory. The two differ in
-`catalog-service.yml`'s greeting, so the tests check structure rather than exact values:
-- health, liveness and readiness are UP;
-- `/catalog-service/default` comes from `catalog-service.yml` with a `polar.greeting`;
-- `/catalog-service/prod` puts `catalog-service-prod.yml` first, still includes the default
-  source, and overrides the greeting;
-- the `main` label returns 200 and an unknown label returns 404;
-- an unknown application returns 200 with no property sources;
-- `/catalog-service-default.yml` contains the greeting.
+   The edge test already pauses catalog-service; these would extend that.
+4. **Edge rate limiting and sessions.** The test only checks that the `X-RateLimit-Remaining`
+   header is there. Exhausting the limit to get a 429, and checking that the login session lives in
+   Redis (it survives an edge-service restart), would cover the Redis side properly.
+5. **Actuator exposure.** The services expose `env`, `heapdump` and `configprops`. A check that none
+   of these can be reached through edge-service (port 9000) would catch an accidental route.
+6. **Kubernetes and Knative manifests** (`polar-deployment/kubernetes/`, `quote-function/knative/`).
+   Nothing checks these. Running them needs a local cluster such as kind or minikube, which
+   probably won't fit in 4 GB next to the apps. A realistic option is a static check
+   (`kubectl kustomize` plus kubeconform) rather than deploying.
+7. **Native images.** Both quote services are meant to ship as native images but are tested as JVM
+   images. Native compilation doesn't fit in this machine's memory, so it belongs in CI or on a
+   bigger machine.
 
-None of the other services use config-service here. Their `spring.cloud.config.enabled` is false,
-and catalog-service doesn't include the config client.
-
-**edge-service:**
-- health, redis, liveness and readiness are UP, and the spa, catalog and order routes are
-  configured;
-- `/` serves polar-ui's HTML;
-- `/books` works anonymously and carries `X-RateLimit-Remaining`;
-- anonymous `/user`, `/orders` and POST `/books` return 401;
-- isabelle and bjorn log in via Keycloak, and `/user` returns the right username and roles;
-- a POST without the CSRF header returns 403;
-- through token relay, isabelle creates and deletes a book (201/204), bjorn is refused (403), and
-  bjorn places an order and sees it listed;
-- logout returns 302 to Keycloak's end-session endpoint, after which `/user` returns 401;
-- with catalog-service paused, GET `/books` falls back to an empty 200 and POST returns 503; after
-  unpausing, books come back.
-
-**quote-service:**
-- GET `/quotes` returns the six quotes, each with content, author and genre, two per genre;
-- `/quotes/random` returns a known author;
-- `/quotes/random/{genre}` returns a quote of that genre for ADVENTURE, FANTASY and
-  SCIENCE_FICTION, and an unknown genre (POETRY) returns 400;
-- random quotes eventually include the last quote (Flora) and both FANTASY quotes. These are
-  regression checks for an off-by-one in `nextInt(size - 1)` that never picked the last quote.
-
-quote-service has no actuator, so readiness is a 200 from `/quotes`.
-
-**quote-function** (Spring Cloud Function over HTTP, no actuator; readiness is a 200 from
-`/randomQuote`):
-- GET `/` runs the default function `allQuotes` and returns the six quotes, two per genre (allQuotes
-  delays its output by one second); GET `/allQuotes` returns them too;
-- GET `/randomQuote` returns a known author;
-- POST `/genreQuote` with `"<GENRE>"` returns a quote of that genre for each of the three genres;
-- an unknown genre (POETRY) returns 500, because the enum conversion fails. The check records this
-  current behaviour; quote-service answers 400 for the same input;
-- POST `/logQuote` and the composed `/genreQuote,logQuote` return 202 and each log one more quote
-  line (checked in `podman logs`, so reruns against the same container still pass);
-- randomQuote eventually returns the last quote (Flora) and genreQuote FANTASY returns both quotes,
-  as regression checks for the same `nextInt(size - 1)` off-by-one.
-
-Orders created by the tests stay in the database; order-service has no delete endpoint.
+1, 2 (metrics and Prometheus only) and 4 are small and check something the design depends on. 6 and
+7 need more resources than this machine has.
