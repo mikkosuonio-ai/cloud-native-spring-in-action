@@ -1,6 +1,6 @@
 ---
 name: smoke-test
-description: Start PolarBookshop services (catalog, order, dispatcher, config, edge with polar-ui) with Podman and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, order-accepted/order-dispatched messaging, config serving, and the edge gateway's OAuth2 login, token relay, CSRF and circuit breaker. Use when asked to smoke test, run, or verify any of those services end to end.
+description: Start PolarBookshop services (catalog, order, dispatcher, config, edge with polar-ui, quote) with Podman and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, order-accepted/order-dispatched messaging, config serving, and the edge gateway's OAuth2 login, token relay, CSRF and circuit breaker, and quote-service's quote endpoints. Use when asked to smoke test, run, or verify any of those services end to end.
 ---
 
 # PolarBookshop smoke test (Podman)
@@ -14,6 +14,7 @@ bash .claude/skills/smoke-test/smoke-test.sh all edge         # edge-service (+ 
 bash .claude/skills/smoke-test/smoke-test.sh all catalog      # catalog-service only (postgres + keycloak)
 bash .claude/skills/smoke-test/smoke-test.sh all dispatcher   # dispatcher-service only (rabbitmq)
 bash .claude/skills/smoke-test/smoke-test.sh all config       # config-service only (no backing services)
+bash .claude/skills/smoke-test/smoke-test.sh all quote        # quote-service only (no backing services)
 bash .claude/skills/smoke-test/smoke-test.sh all --rebuild    # rebuild the selected images from this worktree's code first
 bash .claude/skills/smoke-test/smoke-test.sh test             # rerun the tests against a running stack
 bash .claude/skills/smoke-test/smoke-test.sh down             # remove all the containers
@@ -38,7 +39,8 @@ script reuses existing images, which may have been built from another worktree o
    Gradle daemons or other containers are holding memory.
    - The default stack needs about 2.7 GiB available and leaves only ~0.5 GiB free.
    - `edge` needs about 2.5 GiB and leaves ~0.7 GiB free.
-   - Catalog alone needs about 1.5 GiB, and dispatcher or config alone about 0.6 GiB.
+   - Catalog alone needs about 1.5 GiB, dispatcher or config alone about 0.6 GiB, and quote about
+     0.55 GiB (it uses only ~110 MB once running).
    - An image build needs more.
 
    The script removes the selected app containers before building. Its estimate doesn't account
@@ -54,6 +56,13 @@ script reuses existing images, which may have been built from another worktree o
 - Starts `podman.socket` and builds missing images with `bootBuildImage`. It points Gradle at the
   Podman socket with `bindHostToBuilder = true` through a temporary init script, so `build.gradle`
   is not changed.
+- Runs each build on a JDK installed with sdkman (`~/.sdkman/candidates/java`): 21 by default and
+  17 for quote-service. quote-service uses Spring Native 0.12, whose AOT step can't read Java 21
+  class files. This is an interim setup until all projects move to the same JDK and builds use a
+  preset `JAVA_HOME`. If a JDK is missing, install it with `sdk install java <version>`.
+- Builds quote-service as a JVM image, although its `build.gradle` asks for a native one
+  (`BP_NATIVE_IMAGE=true`). Native compilation needs more memory than this machine has. The init
+  script overrides the variable to `false` in `afterEvaluate`, so it runs after `build.gradle` sets it.
 - Pulls missing backing-service images with a `docker.io/` prefix. Podman here has no
   unqualified-search registries, so short names such as `rabbitmq:3.13-management` only resolve
   once the image is in local storage.
@@ -65,6 +74,7 @@ script reuses existing images, which may have been built from another worktree o
   If none are needed it skips compose entirely, because `podman-compose up` with no service names
   starts every service in the file. Otherwise it checks that each container is running, because
   podman-compose exits 0 even when a container fails to start.
+- Starts quote-service with `podman run` on port 9101. It isn't in the compose file.
 - Starts the app services and polar-ui with `podman run` on the `docker_default` network. It
   generates the arguments (env, ports, extra hosts, image) from the compose file with PyYAML. It
   can't use compose for these because:
@@ -157,5 +167,15 @@ and catalog-service doesn't include the config client.
 - logout returns 302 to Keycloak's end-session endpoint, after which `/user` returns 401;
 - with catalog-service paused, GET `/books` falls back to an empty 200 and POST returns 503; after
   unpausing, books come back.
+
+**quote-service:**
+- GET `/quotes` returns the six quotes, each with content, author and genre, two per genre;
+- `/quotes/random` returns a known author;
+- `/quotes/random/{genre}` returns a quote of that genre for ADVENTURE, FANTASY and
+  SCIENCE_FICTION, and an unknown genre (POETRY) returns 400;
+- random quotes eventually include the last quote (Flora) and both FANTASY quotes. These are
+  regression checks for an off-by-one in `nextInt(size - 1)` that never picked the last quote.
+
+quote-service has no actuator, so readiness is a 200 from `/quotes`.
 
 Orders created by the tests stay in the database; order-service has no delete endpoint.

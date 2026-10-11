@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Smoke test for PolarBookshop services running under Podman.
 #
-# Usage: smoke-test.sh [up|test|down|all] [catalog] [order] [dispatcher] [config] [edge] [--rebuild]
+# Usage: smoke-test.sh [up|test|down|all] [catalog] [order] [dispatcher] [config] [edge] [quote]
+#                      [--rebuild]
 #   up      build missing images (or all selected with --rebuild), start backing services + apps
 #   test    run the HTTP smoke tests against the running stack
 #   down    remove the app containers and the compose backing services
 #   all     up + test (default); leaves the stack running
 #
-# Services default to "catalog order dispatcher config"; edge must be asked for, since the
-# whole set doesn't fit in this machine's memory. order needs catalog, and edge needs
-# catalog, order and polar-ui; those are added automatically.
+# Services default to "catalog order dispatcher config"; edge and quote must be asked for,
+# since the whole set doesn't fit in this machine's memory. order needs catalog, and edge
+# needs catalog, order and polar-ui; those are added automatically.
 # Run from anywhere inside a worktree of the repository.
 set -uo pipefail
 
@@ -20,8 +21,8 @@ for a in "$@"; do
   case $a in
     up|test|down|all)        CMD=$a ;;
     --rebuild)               REBUILD=1 ;;
-    catalog|order|dispatcher|config|edge) SELECTED+=("$a") ;;
-    *) sed -n '2,13p' "$0"; exit 2 ;;
+    catalog|order|dispatcher|config|edge|quote) SELECTED+=("$a") ;;
+    *) sed -n '2,14p' "$0"; exit 2 ;;
   esac
 done
 (( ${#SELECTED[@]} )) || SELECTED=(catalog order dispatcher config)
@@ -32,7 +33,20 @@ selected order || selected edge && SERVICES+=(order-service)
 selected dispatcher && SERVICES+=(dispatcher-service)
 selected config && SERVICES+=(config-service)
 selected edge && SERVICES+=(polar-ui edge-service)
-ALL_APPS=(catalog-service order-service dispatcher-service config-service polar-ui edge-service)
+selected quote && SERVICES+=(quote-service)
+ALL_APPS=(catalog-service order-service dispatcher-service config-service polar-ui edge-service
+          quote-service)
+# Services absent from the compose file: published port for `podman run`.
+declare -A STANDALONE_PORT=([quote-service]=9101)
+# Services whose build.gradle asks for a GraalVM native image; built as JVM images instead,
+# because native compilation needs more memory than this machine has.
+JVM_INSTEAD_OF_NATIVE=" quote-service "
+# JDK each build runs on, installed with sdkman. Spring Native 0.12 (quote-service) can't read
+# Java 21 class files during AOT processing, so it builds on 17. Interim until every project is
+# on the same JDK and builds can use a preset JAVA_HOME.
+JDKS=$HOME/.sdkman/candidates/java
+declare -A JDK=([quote-service]=$JDKS/17.0.20-tem)
+DEFAULT_JDK=$JDKS/21.0.12+1.1-tem
 has() { [[ " ${SERVICES[*]} " == *" $1 "* ]]; }
 needs_keycloak() { has catalog-service; }
 needs_rabbit() { has order-service || has dispatcher-service; }
@@ -51,7 +65,9 @@ declare -A READY_URL=(
   [config-service]=http://localhost:8888/actuator/health/readiness
   [polar-ui]=http://localhost:9004/
   [edge-service]=http://localhost:9000/actuator/health/readiness
+  [quote-service]=http://localhost:9101/quotes
 )
+QUOTE=http://localhost:9101
 EDGE=http://localhost:9000
 CATALOG=http://localhost:9001
 ORDER=http://localhost:9002
@@ -77,17 +93,31 @@ wait_until() { # timeout-seconds description command...
 
 build_image() { # service
   log "Building $1 image (bootBuildImage via Podman)"
+  # afterEvaluate, so the environment override lands after build.gradle sets it.
   cat > "$WORK/podman.init.gradle" <<EOF
 allprojects {
-  tasks.matching { it.name == 'bootBuildImage' }.configureEach {
-    docker {
-      host = "unix://$SOCK"
-      bindHostToBuilder = true
+  afterEvaluate {
+    tasks.matching { it.name == 'bootBuildImage' }.configureEach {
+      docker {
+        host = "unix://$SOCK"
+        bindHostToBuilder = true
+      }
+      if (project.hasProperty('smokeTestJvmImage')) {
+        environment(['BP_NATIVE_IMAGE': 'false'])
+      }
     }
   }
 }
 EOF
-  "$PB/$1/gradlew" --no-daemon -q -p "$PB/$1" -I "$WORK/podman.init.gradle" bootBuildImage \
+  local props=()
+  if [[ $JVM_INSTEAD_OF_NATIVE == *" $1 "* ]]; then
+    echo "Building a JVM image instead of the configured native image"
+    props+=(-PsmokeTestJvmImage)
+  fi
+  local jdk=${JDK[$1]:-$DEFAULT_JDK}
+  [[ -x $jdk/bin/java ]] || { echo "JDK not found: $jdk (install it with sdkman)" >&2; exit 1; }
+  echo "Using JDK $(basename "$jdk")"
+  JAVA_HOME=$jdk "$PB/$1/gradlew" --no-daemon -q -p "$PB/$1" -I "$WORK/podman.init.gradle" "${props[@]}" bootBuildImage \
     > "$WORK/build.log" 2>&1 || { tail -40 "$WORK/build.log"; echo "$1 image build FAILED" >&2; exit 1; }
   echo "Image built"
 }
@@ -95,11 +125,12 @@ EOF
 # Prints NUL-separated `podman run` arguments for a compose service. The compose definitions
 # use the fluentd log driver (unsupported by Podman 4.9) and depend on tempo/fluent-bit, and
 # podman-compose can't drop those via an override file, so the apps are started directly.
+# Services not in the compose file get just their image and STANDALONE_PORT.
 run_args() { # service
-  python3 -I - "$COMPOSE" "$1" "$NET" <<'EOF'
+  python3 -I - "$COMPOSE" "$1" "$NET" "${STANDALONE_PORT[$1]:-}" <<'EOF'
 import sys, yaml
-compose, name, net = sys.argv[1:]
-svc = yaml.safe_load(open(compose))["services"][name]
+compose, name, net, port = sys.argv[1:]
+svc = yaml.safe_load(open(compose))["services"].get(name) or {"image": name, "ports": [f"{port}:{port}"]}
 env = svc.get("environment", [])
 if isinstance(env, dict):
     env = [f"{k}={v}" for k, v in env.items()]
@@ -504,6 +535,36 @@ test_edge() {
   check "books returned again"              True "$(json 'len(d) >= 2')"
 }
 
+# Collects the authors returned by N calls to URL, as a sorted, comma-separated list.
+authors_from() { # url n
+  local i
+  for i in $(seq "$2"); do
+    curl -s "$1" | python3 -I -c 'import sys,json; print(json.load(sys.stdin)["author"])' 2>/dev/null
+  done | sort -u | paste -sd, -
+}
+
+test_quote() {
+  log "quote-service ($QUOTE)"
+  req GET $QUOTE/quotes;                    check "GET /quotes"                       200 "$CODE"
+  check "six quotes"                        6 "$(json 'len(d)')"
+  check "quotes have content/author/genre"  True "$(json 'all({"content","author","genre"} <= q.keys() for q in d)')"
+  check "two quotes per genre"              True "$(json '{g: [q["genre"] for q in d].count(g) for g in ("ADVENTURE","FANTASY","SCIENCE_FICTION")} == {"ADVENTURE":2,"FANTASY":2,"SCIENCE_FICTION":2}')"
+
+  req GET $QUOTE/quotes/random;             check "GET /quotes/random"                200 "$CODE"
+  check "random quote is a known author"    True "$(json 'd["author"] in ("Abigail","Beatrix","Casper","Dobby","Eileen","Flora")')"
+  local g
+  for g in ADVENTURE FANTASY SCIENCE_FICTION; do
+    req GET $QUOTE/quotes/random/$g;        check "GET /quotes/random/$g"             200 "$CODE"
+    check "random $g quote has that genre"  $g "$(json 'd["genre"]')"
+  done
+  req GET $QUOTE/quotes/random/POETRY;      check "GET /quotes/random/POETRY"         400 "$CODE"
+
+  # Regression checks for nextInt(size - 1), which never picked the last quote: the last
+  # quote (Flora) and both FANTASY quotes should all turn up. A miss is ~0.07% likely.
+  check "random covers the last quote"      True "$([[ $(authors_from $QUOTE/quotes/random 40) == *Flora* ]] && echo True)"
+  check "random FANTASY covers both quotes" Casper,Dobby "$(authors_from $QUOTE/quotes/random/FANTASY 20)"
+}
+
 run_tests() {
   if needs_keycloak; then
     log "Preparing tokens"
@@ -516,6 +577,7 @@ run_tests() {
   has dispatcher-service && test_dispatcher
   has order-service && test_order
   has edge-service && test_edge
+  has quote-service && test_quote
 
   log "Result: $PASS passed, $FAIL failed"
   (( FAIL == 0 ))
