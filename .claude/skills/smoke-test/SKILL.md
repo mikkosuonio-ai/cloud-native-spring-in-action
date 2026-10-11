@@ -1,6 +1,6 @@
 ---
 name: smoke-test
-description: Start PolarBookshop catalog-service, order-service and dispatcher-service with Podman (with postgres, keycloak and rabbitmq) and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement and the order-accepted/order-dispatched messaging. Use when asked to smoke test, run, or verify catalog-service, order-service or dispatcher-service end to end.
+description: Start PolarBookshop catalog-service, order-service, dispatcher-service and config-service with Podman (with postgres, keycloak and rabbitmq) and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, the order-accepted/order-dispatched messaging and config serving. Use when asked to smoke test, run, or verify any of those services end to end.
 ---
 
 # PolarBookshop smoke test (Podman)
@@ -12,12 +12,13 @@ skill directory does the whole job. Run it from the worktree root:
 bash .claude/skills/smoke-test/smoke-test.sh all              # up + test all services, leaves the stack running
 bash .claude/skills/smoke-test/smoke-test.sh all catalog      # catalog-service only (postgres + keycloak)
 bash .claude/skills/smoke-test/smoke-test.sh all dispatcher   # dispatcher-service only (rabbitmq)
+bash .claude/skills/smoke-test/smoke-test.sh all config       # config-service only (no backing services)
 bash .claude/skills/smoke-test/smoke-test.sh all --rebuild    # rebuild the selected images from this worktree's code first
 bash .claude/skills/smoke-test/smoke-test.sh test             # rerun the tests against a running stack
 bash .claude/skills/smoke-test/smoke-test.sh down             # remove all the containers
 ```
 
-Services default to `catalog order dispatcher`; any combination can be given. Selecting `order`
+Services default to `catalog order dispatcher config`; any combination can be given. Selecting `order`
 also selects `catalog`, because order-service looks books up in catalog-service.
 
 Pass `--rebuild` when the user wants to test the current code in the worktree. Without it, the
@@ -26,9 +27,9 @@ script reuses existing images, which may have been built from another worktree o
 ## Steps
 
 1. **Check memory first.** The machine has ~4 GB RAM and no swap. Run `free -h` and make sure no
-   Gradle daemons or other containers are holding memory. The full stack needs about 2.3 GiB
-   available (catalog only: about 1.5 GiB, dispatcher only: about 0.7 GiB), and an image build
-   needs more. The script removes the selected app containers before building. Its estimate
+   Gradle daemons or other containers are holding memory. The full stack needs about 2.7 GiB
+   available and leaves only ~0.5 GiB free. Catalog alone needs about 1.5 GiB, and dispatcher or
+   config alone about 0.6 GiB. An image build needs more. The script removes the selected app containers before building. Its estimate
    doesn't account for backing services that are already running, so its warning can be
    overcautious on a rerun.
 2. Run `smoke-test.sh all` (add `--rebuild` if needed) with a Bash timeout of about 10 minutes.
@@ -46,7 +47,9 @@ script reuses existing images, which may have been built from another worktree o
   unqualified-search registries, so short names such as `rabbitmq:3.13-management` only resolve
   once the image is in local storage.
 - Starts only the backing services the selection needs with podman-compose: `polar-postgres` and
-  `polar-keycloak` for catalog and order, and `polar-rabbitmq` for order and dispatcher. It then checks that each container is running, because podman-compose exits 0
+  `polar-keycloak` for catalog and order, and `polar-rabbitmq` for order and dispatcher. If none
+  are needed it skips compose entirely, because `podman-compose up` with no service names starts
+  every service in the file. It then checks that each container is running, because podman-compose exits 0
   even when a container fails to start.
 - Starts the app services with `podman run` on the `docker_default` network. It generates the
   arguments (env, ports, extra hosts, image) from the compose file with PyYAML. It can't use
@@ -98,5 +101,19 @@ returns 404.
 - the `packlabel-in-0` binding is running;
 - publishing `{"orderId": id}` to `order-accepted` makes it emit `order-dispatched` with the same
   id. The id is above 900000000, so order-service ignores it if running.
+
+**config-service:** It serves https://github.com/PolarBookshop/config-repo (cloned at startup, so
+it needs network access), not the local `PolarBookshop/config-repo/` directory. The two differ in
+`catalog-service.yml`'s greeting, so the tests check structure rather than exact values:
+- health, liveness and readiness are UP;
+- `/catalog-service/default` comes from `catalog-service.yml` with a `polar.greeting`;
+- `/catalog-service/prod` puts `catalog-service-prod.yml` first, still includes the default
+  source, and overrides the greeting;
+- the `main` label returns 200 and an unknown label returns 404;
+- an unknown application returns 200 with no property sources;
+- `/catalog-service-default.yml` contains the greeting.
+
+None of the other services use config-service here. Their `spring.cloud.config.enabled` is false,
+and catalog-service doesn't include the config client.
 
 Orders created by the tests stay in the database; order-service has no delete endpoint.

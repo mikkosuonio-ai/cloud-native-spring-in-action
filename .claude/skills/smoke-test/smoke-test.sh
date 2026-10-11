@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Smoke test for PolarBookshop services running under Podman.
 #
-# Usage: smoke-test.sh [up|test|down|all] [catalog] [order] [dispatcher] [--rebuild]
+# Usage: smoke-test.sh [up|test|down|all] [catalog] [order] [dispatcher] [config] [--rebuild]
 #   up      build missing images (or all selected with --rebuild), start backing services + apps
 #   test    run the HTTP smoke tests against the running stack
 #   down    remove the app containers and the compose backing services
 #   all     up + test (default); leaves the stack running
 #
-# Services default to all three. order-service needs catalog-service, so selecting order
+# Services default to all of them. order-service needs catalog-service, so selecting order
 # also selects catalog. Run from anywhere inside a worktree of the repository.
 set -uo pipefail
 
@@ -18,17 +18,18 @@ for a in "$@"; do
   case $a in
     up|test|down|all)        CMD=$a ;;
     --rebuild)               REBUILD=1 ;;
-    catalog|order|dispatcher) SELECTED+=("$a") ;;
+    catalog|order|dispatcher|config) SELECTED+=("$a") ;;
     *) sed -n '2,11p' "$0"; exit 2 ;;
   esac
 done
-(( ${#SELECTED[@]} )) || SELECTED=(catalog order dispatcher)
+(( ${#SELECTED[@]} )) || SELECTED=(catalog order dispatcher config)
 selected() { [[ " ${SELECTED[*]} " == *" $1 "* ]]; }
 SERVICES=()
 selected catalog || selected order && SERVICES+=(catalog-service)
 selected order && SERVICES+=(order-service)
 selected dispatcher && SERVICES+=(dispatcher-service)
-ALL_APPS=(catalog-service order-service dispatcher-service)
+selected config && SERVICES+=(config-service)
+ALL_APPS=(catalog-service order-service dispatcher-service config-service)
 has() { [[ " ${SERVICES[*]} " == *" $1 "* ]]; }
 needs_keycloak() { has catalog-service; }
 needs_rabbit() { has order-service || has dispatcher-service; }
@@ -39,10 +40,11 @@ COMPOSE=$PB/polar-deployment/docker/docker-compose.yml
 [[ -f $COMPOSE ]] || { echo "Compose file not found: $COMPOSE" >&2; exit 2; }
 SOCK=/run/user/$(id -u)/podman/podman.sock
 NET=docker_default   # network podman-compose creates for project "docker"
-declare -A PORT=([catalog-service]=9001 [order-service]=9002 [dispatcher-service]=9003)
+declare -A PORT=([catalog-service]=9001 [order-service]=9002 [dispatcher-service]=9003 [config-service]=8888)
 CATALOG=http://localhost:9001
 ORDER=http://localhost:9002
 DISPATCHER=http://localhost:9003
+CONFIG=http://localhost:8888
 KEYCLOAK=http://localhost:8080
 RABBIT=http://localhost:15672/api
 RABBIT_AUTH=user:password
@@ -146,13 +148,17 @@ up() {
     podman pull -q "$img" >/dev/null || { echo "Pull of $img FAILED" >&2; exit 1; }
   done
 
-  log "Starting ${backing[*]}"
-  # podman-compose exits 0 even when a container fails to start, so check each one.
-  podman-compose -f "$COMPOSE" up -d "${backing[@]}" >"$WORK/compose.log" 2>&1
-  for s in "${backing[@]}"; do
-    [[ $(podman inspect -f '{{.State.Running}}' "$s" 2>/dev/null) == true ]] \
-      || { grep -i error "$WORK/compose.log"; echo "$s is not running" >&2; exit 1; }
-  done
+  # Guard: `podman-compose up` with no service names starts every service in the file.
+  if (( ${#backing[@]} )); then
+    log "Starting ${backing[*]}"
+    # podman-compose exits 0 even when a container fails to start, so check each one.
+    podman-compose -f "$COMPOSE" up -d "${backing[@]}" >"$WORK/compose.log" 2>&1
+    for s in "${backing[@]}"; do
+      [[ $(podman inspect -f '{{.State.Running}}' "$s" 2>/dev/null) == true ]] \
+        || { grep -i error "$WORK/compose.log"; echo "$s is not running" >&2; exit 1; }
+    done
+  fi
+  podman network exists "$NET" || podman network create "$NET" >/dev/null
 
   local args
   for s in "${SERVICES[@]}"; do
@@ -356,6 +362,33 @@ test_dispatcher() {
   capture_stop $capture
 }
 
+test_config() {
+  # config-service clones https://github.com/PolarBookshop/config-repo (not the local
+  # config-repo/ directory), so check structure rather than exact property values.
+  log "config-service ($CONFIG)"
+  req GET $CONFIG/actuator/health;           check "health status"                    UP "$(json 'd["status"]')"
+  req GET $CONFIG/actuator/health/liveness;  check "liveness probe"                   200 "$CODE"
+  req GET $CONFIG/actuator/health/readiness; check "readiness probe"                  200 "$CODE"
+
+  req GET $CONFIG/catalog-service/default;   check "GET catalog-service/default"      200 "$CODE"
+  check "default source is catalog-service.yml" True "$(json 'd["propertySources"][0]["name"].endswith("/catalog-service.yml")')"
+  local greeting; greeting=$(json 'd["propertySources"][0]["source"]["polar.greeting"]')
+  check "default polar.greeting served"      True "$([[ -n $greeting ]] && echo True)"
+
+  req GET $CONFIG/catalog-service/prod;      check "GET catalog-service/prod"         200 "$CODE"
+  check "prod source first"                  True "$(json 'd["propertySources"][0]["name"].endswith("/catalog-service-prod.yml")')"
+  check "prod also includes default source"  True "$(json 'any(s["name"].endswith("/catalog-service.yml") for s in d["propertySources"])')"
+  local prod_greeting; prod_greeting=$(json 'd["propertySources"][0]["source"]["polar.greeting"]')
+  check "prod overrides polar.greeting"      True "$([[ -n $prod_greeting && $prod_greeting != "$greeting" ]] && echo True)"
+
+  req GET $CONFIG/catalog-service/default/main;  check "GET with label main"          200 "$CODE"
+  req GET $CONFIG/catalog-service/default/no-such-label; check "GET with unknown label" 404 "$CODE"
+  req GET $CONFIG/no-such-app/default;       check "GET unknown application"          200 "$CODE"
+  check "unknown application has no sources" 0 "$(json 'len(d["propertySources"])')"
+  req GET $CONFIG/catalog-service-default.yml; check "GET catalog-service-default.yml" 200 "$CODE"
+  check "YAML contains the greeting"         True "$([[ $BODY == *"$greeting"* ]] && echo True)"
+}
+
 run_tests() {
   if needs_keycloak; then
     log "Preparing tokens"
@@ -363,6 +396,7 @@ run_tests() {
     I=$(token isabelle) && B=$(token bjorn) || { echo "Could not obtain user tokens" >&2; exit 1; }
   fi
 
+  has config-service && test_config
   has catalog-service && test_catalog
   has dispatcher-service && test_dispatcher
   has order-service && test_order
