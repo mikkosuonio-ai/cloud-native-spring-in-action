@@ -1,6 +1,6 @@
 ---
 name: smoke-test
-description: Start PolarBookshop services (catalog, order, dispatcher, config, edge with polar-ui, quote, quote-function) with Podman and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, order-accepted/order-dispatched messaging, config serving, and the edge gateway's OAuth2 login, token relay, CSRF and circuit breaker, and the quote endpoints of quote-service and quote-function's Spring Cloud Function endpoints. Use when asked to smoke test, run, or verify any of those services end to end.
+description: Start PolarBookshop services (catalog, order, dispatcher, config, edge with polar-ui, quote, quote-function) with Podman and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, order-accepted/order-dispatched messaging, config serving and catalog-service reading its configuration from config-service, and the edge gateway's OAuth2 login, token relay, CSRF and circuit breaker, and the quote endpoints of quote-service and quote-function's Spring Cloud Function endpoints. Use when asked to smoke test, run, or verify any of those services end to end.
 ---
 
 # PolarBookshop smoke test (Podman)
@@ -27,6 +27,9 @@ automatically:
 - `order` adds `catalog`, because order-service looks books up in catalog-service;
 - `edge` adds `catalog`, `order` and the prebuilt `polar-ui` image, because the gateway routes to
   them.
+
+With both `catalog` and `config` selected, as in the default, catalog-service reads its
+configuration from config-service. Without `config`, it uses its own `application.yml`.
 
 `test` and `all` use the same selection, so run `test edge` against a stack started with
 `all edge`.
@@ -117,6 +120,19 @@ script reuses existing images, which may have been built from another worktree o
   startup (so it needs network access), not the local `PolarBookshop/config-repo/` directory. The
   two differ in `catalog-service.yml`'s greeting, so the tests check structure rather than exact
   values.
+- Starts catalog-service as a config client when config-service is selected. The compose file only
+  sets `SPRING_CLOUD_CONFIG_URI`, and the client is off in `application.yml`, so the script adds
+  `SPRING_CONFIG_IMPORT=optional:configserver:`, `SPRING_CLOUD_CONFIG_ENABLED=true` and
+  `SPRING_CLOUD_CONFIG_FAIL_FAST=true`. Fail-fast makes catalog-service fail to start, instead of
+  silently using local defaults, if config-service is unreachable. config-service starts first,
+  and catalog-service waits for it to be ready. The checks:
+  - GET `/` returns the `polar.greeting` that config-service serves for catalog-service's active
+    profile, compared at test time because the upstream repo can change;
+  - `/actuator/env` has a `configserver:` property source for `catalog-service.yml`, and it is the
+    first source defining `polar.greeting` (values are masked, the source names are not).
+
+  Without config-service, the greeting must be `application.yml`'s "Welcome to the local book
+  catalog!".
 - Treats a 200 from `/quotes` (quote-service) or `/randomQuote` (quote-function) as ready, because
   neither has an actuator.
 - Leaves the orders it creates in the database, because order-service has no delete endpoint.
@@ -125,10 +141,11 @@ script reuses existing images, which may have been built from another worktree o
 
 Not verified yet, roughly in order of value:
 
-1. **Services reading their settings from config-service.** All four clients have
-   `spring.cloud.config.enabled: false`, and catalog-service doesn't include the config client at
-   all, so config-service is only tested on its own. A check could start catalog-service with
-   config enabled and confirm the greeting comes from the config repo.
+1. **Other config clients and profiles.** Only catalog-service is tested as a config client.
+   order-service, dispatcher-service and edge-service include the client too, but the config-repo
+   has no files for them, so enabling it would change nothing visible. The client is also only
+   checked with the `testdata` profile; `prod` is checked on config-service alone. Refreshing
+   configuration at runtime isn't covered either: no service exposes `/actuator/refresh`.
 2. **Observability.** Tempo, Loki, fluent-bit, Prometheus and Grafana are in the compose file but
    never started. Tracing export is switched off and the fluentd log driver doesn't work on Podman.
    Cheap checks would be:
@@ -157,5 +174,5 @@ Not verified yet, roughly in order of value:
    images. Native compilation doesn't fit in this machine's memory, so it belongs in CI or on a
    bigger machine.
 
-1, 2 (metrics and Prometheus only) and 4 are small and check something the design depends on. 6 and
+2 (metrics and Prometheus only) and 4 are small and check something the design depends on. 6 and
 7 need more resources than this machine has.

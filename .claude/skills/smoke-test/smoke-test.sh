@@ -28,10 +28,10 @@ done
 (( ${#SELECTED[@]} )) || SELECTED=(catalog order dispatcher config)
 selected() { [[ " ${SELECTED[*]} " == *" $1 "* ]]; }
 SERVICES=()
+selected config && SERVICES+=(config-service)
 selected catalog || selected order || selected edge && SERVICES+=(catalog-service)
 selected order || selected edge && SERVICES+=(order-service)
 selected dispatcher && SERVICES+=(dispatcher-service)
-selected config && SERVICES+=(config-service)
 selected edge && SERVICES+=(polar-ui edge-service)
 selected quote && SERVICES+=(quote-service)
 selected quote-function && SERVICES+=(quote-function)
@@ -52,6 +52,8 @@ has() { [[ " ${SERVICES[*]} " == *" $1 "* ]]; }
 needs_keycloak() { has catalog-service; }
 needs_rabbit() { has order-service || has dispatcher-service; }
 needs_redis() { has edge-service; }
+# With config-service selected, catalog-service reads its configuration from it.
+config_client() { [[ $1 == catalog-service ]] && has config-service; }
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "Not inside a git worktree" >&2; exit 2; }
 PB=$ROOT/PolarBookshop
@@ -130,15 +132,21 @@ EOF
 # podman-compose can't drop those via an override file, so the apps are started directly.
 # Services not in the compose file get just their image and STANDALONE_PORT.
 run_args() { # service
-  python3 -I - "$COMPOSE" "$1" "$NET" "${STANDALONE_PORT[$1]:-}" <<'EOF'
+  local client=; config_client "$1" && client=1
+  python3 -I - "$COMPOSE" "$1" "$NET" "${STANDALONE_PORT[$1]:-}" "$client" <<'EOF'
 import sys, yaml
-compose, name, net, port = sys.argv[1:]
+compose, name, net, port, client = sys.argv[1:]
 svc = yaml.safe_load(open(compose))["services"].get(name) or {"image": name, "ports": [f"{port}:{port}"]}
 env = svc.get("environment", [])
 if isinstance(env, dict):
     env = [f"{k}={v}" for k, v in env.items()]
 # No tempo here; keep the agent for instrumentation but don't export.
 env += ["OTEL_TRACES_EXPORTER=none", "OTEL_LOGS_EXPORTER=none", "OTEL_METRICS_EXPORTER=none"]
+# The compose file only sets the config-service URI; the client is off unless enabled.
+# fail-fast, so a service that can't reach config-service fails instead of falling back.
+if client:
+    env += ["SPRING_CONFIG_IMPORT=optional:configserver:", "SPRING_CLOUD_CONFIG_ENABLED=true",
+            "SPRING_CLOUD_CONFIG_FAIL_FAST=true"]
 # The JWT issuer is host.docker.internal; not every service declares the host entry.
 hosts = set(svc.get("extra_hosts", [])) | {"host.docker.internal:host-gateway"}
 args = ["--name", svc.get("container_name", name), "--net", net, "--network-alias", name,
@@ -217,6 +225,10 @@ up() {
     # Keycloak isn't up yet; the other services only contact Keycloak on first use.
     if [[ $s == edge-service ]]; then
       wait_until 180 "Keycloak realm" curl -sf "$KEYCLOAK/realms/PolarBookshop" || exit 1
+    fi
+    if config_client "$s"; then
+      wait_until 180 "config-service readiness" curl -sf "${READY_URL[config-service]}" \
+        || { podman logs --tail 40 config-service; exit 1; }
     fi
     log "Starting $s"
     mapfile -d '' args < <(run_args "$s")
@@ -321,6 +333,8 @@ test_catalog() {
 
   log "catalog-service ($CATALOG)"
   req GET $CATALOG/;                          check "GET / greeting"                 200 "$CODE" "$BODY"
+  config_client catalog-service \
+    || check "greeting from application.yml"  "Welcome to the local book catalog!" "$BODY"
   req GET $CATALOG/actuator/health;           check "health status"                  UP "$(json 'd["status"]')"
   check "health db component"                 UP "$(json 'd["components"]["db"]["status"]')"
   req GET $CATALOG/actuator/health/liveness;  check "liveness probe"                 200 "$CODE"
@@ -610,6 +624,21 @@ test_quote_function() {
   check "genreQuote FANTASY covers both quotes" Casper,Dobby "$(authors_from $QUOTE_FN/genreQuote 20 '"FANTASY"')"
 }
 
+# catalog-service started as a config client (see config_client).
+test_config_client() {
+  log "catalog-service configuration from config-service"
+  local profile; profile=$(podman inspect -f '{{range .Config.Env}}{{println .}}{{end}}' catalog-service \
+    | sed -n 's/^SPRING_PROFILES_ACTIVE=//p')
+  req GET "$CONFIG/catalog-service/${profile:-default}"
+  local served; served=$(json 'next(s["source"]["polar.greeting"] for s in d["propertySources"] if "polar.greeting" in s["source"])')
+  check "config-service serves a greeting"    True "$([[ -n $served ]] && echo True)" "profile ${profile:-default}"
+  req GET $CATALOG/;                          check "GET / greeting is the served one" "$served" "$BODY"
+  req GET $CATALOG/actuator/env
+  check "env has the configserver source"     True "$(json 'any(s["name"].startswith("configserver:") and s["name"].endswith("/catalog-service.yml") for s in d["propertySources"])')"
+  # Values are masked; the first source defining polar.greeting is the one in effect.
+  check "polar.greeting comes from it"        True "$(json 'next(s["name"] for s in d["propertySources"] if "polar.greeting" in s.get("properties", {})).startswith("configserver:")')"
+}
+
 run_tests() {
   if needs_keycloak; then
     log "Preparing tokens"
@@ -618,6 +647,7 @@ run_tests() {
   fi
 
   has config-service && test_config
+  config_client catalog-service && test_config_client
   has catalog-service && test_catalog
   has dispatcher-service && test_dispatcher
   has order-service && test_order
