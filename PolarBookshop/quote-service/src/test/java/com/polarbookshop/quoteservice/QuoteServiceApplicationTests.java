@@ -47,4 +47,13 @@ class QuoteServiceApplicationTests {
 				.value(quote -> assertThat(quote.genre()).isEqualTo(Genre.FANTASY));
 	}
 
+	@Test
+	void whenRandomQuoteByUnknownGenreThenBadRequest() {
+		webTestClient
+				.get()
+				.uri("/quotes/random/POETRY")
+				.exchange()
+				.expectStatus().isBadRequest();
+	}
+
 }
