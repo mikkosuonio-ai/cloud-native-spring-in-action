@@ -158,6 +158,12 @@ script reuses existing images, which may have been built from another worktree o
     catalog-service, and dispatcher-service when it runs (the context travels through RabbitMQ);
   - with edge-service, GET `/books` through the gateway is one trace across edge-service and
     catalog-service;
+  - Tempo's metrics generator remote-writes span metrics and a service graph to Prometheus. The
+    compose file starts Prometheus with `--web.enable-remote-write-receiver` and
+    `--enable-feature=native-histograms`; without the latter Prometheus rejects every write,
+    because Tempo sends native histograms. The test checks span metrics for each running service
+    and the service-graph edges order → catalog, order ↔ dispatcher (over RabbitMQ) and
+    edge → catalog. They take up to a minute to arrive;
   - Grafana's database is ok, it has the Prometheus, Tempo and Loki datasources and the three
     dashboards from `observability/grafana/`, and it can query Prometheus and fetch the order
     trace from Tempo through its datasource proxy.
@@ -178,8 +184,6 @@ Not verified yet, roughly in order of value:
    the `fluentd` log driver, which Podman 4.9 rejects, so fluent-bit gets nothing. A workaround
    could ship `podman logs` output to fluent-bit's forward port, or use Podman's journald driver
    with a fluent-bit input for it. Also not covered:
-   - Tempo's metrics generator, which remote-writes span metrics to Prometheus. Prometheus isn't
-     started with the remote-write receiver, so nothing arrives;
    - whether the Grafana dashboards' panels actually show data;
    - the full default set together with observability, which doesn't fit in memory.
 3. **Behaviour after a restart or a broker outage:**

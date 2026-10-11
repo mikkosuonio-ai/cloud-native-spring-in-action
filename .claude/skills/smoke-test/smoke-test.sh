@@ -678,6 +678,7 @@ prom_value() { # PromQL -> first sample's value
   curl -s --get --data-urlencode "query=$1" "$PROMETHEUS/api/v1/query" \
     | python3 -I -c 'import sys,json; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else "")' 2>/dev/null
 }
+prom_positive() { local v; v=$(prom_value "$1"); [[ -n $v ]] && python3 -I -c "import sys; sys.exit(not float(sys.argv[1]) > 0)" "$v"; }
 prom_up() { [[ $(prom_value "up{job=\"$1\"}") == 1 ]]; }
 hex() { od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'; }
 # Services that sent spans for a trace, sorted and comma-separated.
@@ -729,6 +730,25 @@ test_observability() {
     wait_until 60 "Tempo to receive the edge trace" trace_has "$id" catalog-service,edge-service >/dev/null
     check "edge /books trace spans catalog"   catalog-service,edge-service "$(trace_services "$id")"
   fi
+
+  # Tempo's metrics generator remote-writes span metrics and the service graph to Prometheus
+  # (needs --web.enable-remote-write-receiver and native histograms on Prometheus).
+  for s in "${TRACED[@]}"; do
+    has "$s" || continue
+    wait_until 90 "span metrics for $s" prom_positive "sum(traces_spanmetrics_calls_total{service=\"$s\"})" >/dev/null
+    check "Prometheus has Tempo span metrics for $s" True \
+      "$(prom_positive "sum(traces_spanmetrics_calls_total{service=\"$s\"})" && echo True)"
+  done
+  local edges=()
+  has order-service && edges+=(order-service:catalog-service)
+  has order-service && has dispatcher-service && edges+=(order-service:dispatcher-service dispatcher-service:order-service)
+  has edge-service && edges+=(edge-service:catalog-service)
+  local e q
+  for e in "${edges[@]}"; do
+    q="sum(traces_service_graph_request_total{client=\"${e%%:*}\",server=\"${e#*:}\"})"
+    wait_until 90 "service graph edge ${e/:/ -> }" prom_positive "$q" >/dev/null
+    check "service graph has ${e/:/ -> }"     True "$(prom_positive "$q" && echo True)"
+  done
 
   local g=(-s -u "$GRAFANA_AUTH")
   BODY=$(curl "${g[@]}" "$GRAFANA/api/health")
