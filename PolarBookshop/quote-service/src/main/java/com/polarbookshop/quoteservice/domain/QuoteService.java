@@ -26,14 +26,14 @@ public class QuoteService {
 	}
 
 	public Mono<Quote> getRandomQuote() {
-		return Mono.just(quotes.get(random.nextInt(quotes.size() - 1)));
+		return Mono.just(quotes.get(random.nextInt(quotes.size())));
 	}
 
 	public Mono<Quote> getRandomQuoteByGenre(Genre genre) {
 		var quotesForGenre = quotes.stream()
 				.filter(q -> q.genre().equals(genre))
 				.toList();
-		return Mono.just(quotesForGenre.get(random.nextInt(quotesForGenre.size() - 1)));
+		return Mono.just(quotesForGenre.get(random.nextInt(quotesForGenre.size())));
 	}
 
 }
