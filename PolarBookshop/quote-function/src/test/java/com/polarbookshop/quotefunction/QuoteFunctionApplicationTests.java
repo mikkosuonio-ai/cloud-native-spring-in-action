@@ -50,6 +50,16 @@ class QuoteFunctionApplicationTests {
 	}
 
 	@Test
+	void whenGenreQuoteWithUnknownGenreThenBadRequest() {
+		webTestClient
+				.post()
+				.uri("/genreQuote")
+				.bodyValue("POETRY")
+				.exchange()
+				.expectStatus().isBadRequest();
+	}
+
+	@Test
 	void whenGenreQuoteLogQuoteThenReturn() {
 		webTestClient
 				.post()
