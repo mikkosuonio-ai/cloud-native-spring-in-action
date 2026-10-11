@@ -60,6 +60,24 @@ class QuoteFunctionApplicationTests {
 	}
 
 	@Test
+	void whenGenreQuoteWithoutGenreThenBadRequest() {
+		webTestClient
+				.post()
+				.uri("/genreQuote")
+				.exchange()
+				.expectStatus().isBadRequest();
+	}
+
+	@Test
+	void whenGenreQuoteByGetWithoutGenreThenBadRequest() {
+		webTestClient
+				.get()
+				.uri("/genreQuote")
+				.exchange()
+				.expectStatus().isBadRequest();
+	}
+
+	@Test
 	void whenGenreQuoteLogQuoteThenReturn() {
 		webTestClient
 				.post()

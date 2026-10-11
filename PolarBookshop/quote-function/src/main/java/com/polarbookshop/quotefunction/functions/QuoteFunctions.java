@@ -15,6 +15,8 @@ import reactor.core.publisher.Mono;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @Configuration
 public class QuoteFunctions {
@@ -40,10 +42,13 @@ public class QuoteFunctions {
 
 	@Bean
 	Function<Mono<Genre>, Mono<Quote>> genreQuote(QuoteService quoteService) {
-		return mono -> mono.flatMap(genre -> {
-			log.info("Getting quote for type {}", genre);
-			return quoteService.getRandomQuoteByGenre(genre);
-		});
+		// Without input, Spring Cloud Function passes an empty String unconverted; ofType drops it without a cast.
+		return mono -> mono.ofType(Genre.class)
+				.switchIfEmpty(Mono.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "A genre is required")))
+				.flatMap(genre -> {
+					log.info("Getting quote for type {}", genre);
+					return quoteService.getRandomQuoteByGenre(genre);
+				});
 	}
 
 	@Bean
