@@ -237,6 +237,13 @@ services:
   prometheus:
     image: quay.io/prometheus/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
     container_name: prometheus
+    # Defaults of the image, plus the endpoint Tempo's metrics generator remote-writes to.
+    # Tempo also sends native histograms, and Prometheus rejects the whole write without them.
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-remote-write-receiver
+      - --enable-feature=native-histograms
     ports:
       - "9090:9090"
     volumes:
