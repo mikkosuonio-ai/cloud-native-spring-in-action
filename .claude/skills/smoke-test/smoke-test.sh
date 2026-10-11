@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Smoke test for PolarBookshop services running under Podman.
 #
-# Usage: smoke-test.sh [up|test|down|all] [catalog] [order] [--rebuild]
+# Usage: smoke-test.sh [up|test|down|all] [catalog] [order] [dispatcher] [--rebuild]
 #   up      build missing images (or all selected with --rebuild), start backing services + apps
 #   test    run the HTTP smoke tests against the running stack
 #   down    remove the app containers and the compose backing services
 #   all     up + test (default); leaves the stack running
 #
-# Services default to "catalog order". order-service needs catalog-service, so selecting
-# order also selects catalog. Run from anywhere inside a worktree of the repository.
+# Services default to all three. order-service needs catalog-service, so selecting order
+# also selects catalog. Run from anywhere inside a worktree of the repository.
 set -uo pipefail
 
 CMD=all
@@ -16,16 +16,22 @@ REBUILD=0
 SELECTED=()
 for a in "$@"; do
   case $a in
-    up|test|down|all) CMD=$a ;;
-    --rebuild)        REBUILD=1 ;;
-    catalog|order)    SELECTED+=("$a") ;;
+    up|test|down|all)        CMD=$a ;;
+    --rebuild)               REBUILD=1 ;;
+    catalog|order|dispatcher) SELECTED+=("$a") ;;
     *) sed -n '2,11p' "$0"; exit 2 ;;
   esac
 done
-(( ${#SELECTED[@]} )) || SELECTED=(catalog order)
-SERVICES=(catalog-service)
-[[ " ${SELECTED[*]} " == *" order "* ]] && SERVICES+=(order-service)
+(( ${#SELECTED[@]} )) || SELECTED=(catalog order dispatcher)
+selected() { [[ " ${SELECTED[*]} " == *" $1 "* ]]; }
+SERVICES=()
+selected catalog || selected order && SERVICES+=(catalog-service)
+selected order && SERVICES+=(order-service)
+selected dispatcher && SERVICES+=(dispatcher-service)
+ALL_APPS=(catalog-service order-service dispatcher-service)
 has() { [[ " ${SERVICES[*]} " == *" $1 "* ]]; }
+needs_keycloak() { has catalog-service; }
+needs_rabbit() { has order-service || has dispatcher-service; }
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "Not inside a git worktree" >&2; exit 2; }
 PB=$ROOT/PolarBookshop
@@ -33,9 +39,10 @@ COMPOSE=$PB/polar-deployment/docker/docker-compose.yml
 [[ -f $COMPOSE ]] || { echo "Compose file not found: $COMPOSE" >&2; exit 2; }
 SOCK=/run/user/$(id -u)/podman/podman.sock
 NET=docker_default   # network podman-compose creates for project "docker"
-declare -A PORT=([catalog-service]=9001 [order-service]=9002)
+declare -A PORT=([catalog-service]=9001 [order-service]=9002 [dispatcher-service]=9003)
 CATALOG=http://localhost:9001
 ORDER=http://localhost:9002
+DISPATCHER=http://localhost:9003
 KEYCLOAK=http://localhost:8080
 RABBIT=http://localhost:15672/api
 RABBIT_AUTH=user:password
@@ -102,10 +109,13 @@ up() {
     || { echo "podman and podman-compose are required" >&2; exit 2; }
 
   # Free the app containers' memory before any image build.
-  podman rm -f "${SERVICES[@]}" >/dev/null 2>&1
+  local s
+  for s in "${SERVICES[@]}"; do podman rm -f "$s" >/dev/null 2>&1; done
 
-  local avail_mb need_mb=1500
-  has order-service && need_mb=2200
+  # Rough figures seen in practice: keycloak+postgres ~1 GB, each app ~350 MB, rabbitmq ~100 MB.
+  local avail_mb need_mb=$(( 200 + 350 * ${#SERVICES[@]} ))
+  needs_keycloak && (( need_mb += 1000 ))
+  needs_rabbit && (( need_mb += 100 ))
   avail_mb=$(free -m | awk '/^Mem:/ {print $7}')
   echo "Available memory: ${avail_mb} MiB (stack needs about ${need_mb} MiB)"
   (( avail_mb < need_mb )) && echo "WARNING: stack may be OOM-killed. Stop other containers / Gradle daemons first."
@@ -113,7 +123,6 @@ up() {
   log "Podman API socket"
   systemctl --user start podman.socket && echo "podman.socket active ($SOCK)"
 
-  local s
   for s in "${SERVICES[@]}"; do
     if (( REBUILD )) || ! podman image exists "$s"; then
       build_image "$s"
@@ -122,8 +131,9 @@ up() {
     fi
   done
 
-  local backing=(polar-postgres polar-keycloak)
-  has order-service && backing+=(polar-rabbitmq)
+  local backing=()
+  needs_keycloak && backing+=(polar-postgres polar-keycloak)
+  needs_rabbit && backing+=(polar-rabbitmq)
   # Podman has no unqualified-search registries here, so short names like
   # "rabbitmq:3.13-management" only work once the image is in local storage.
   local img
@@ -148,16 +158,22 @@ up() {
   for s in "${SERVICES[@]}"; do
     log "Starting $s"
     mapfile -d '' args < <(run_args "$s")
-    podman run -d "${args[@]}" >/dev/null || exit 1
+    podman run -d --replace "${args[@]}" >/dev/null || exit 1
   done
 
   for s in "${SERVICES[@]}"; do
     wait_until 180 "$s readiness" curl -sf "http://localhost:${PORT[$s]}/actuator/health/readiness" \
       || { podman logs --tail 40 "$s"; exit 1; }
   done
-  wait_until 180 "Keycloak realm" curl -sf "$KEYCLOAK/realms/PolarBookshop" || exit 1
+  if needs_keycloak; then
+    wait_until 180 "Keycloak realm" curl -sf "$KEYCLOAK/realms/PolarBookshop" || exit 1
+  fi
+  # The services report ready before their RabbitMQ consumers are attached.
   if has order-service; then
-    wait_until 120 "order-service consumer on order-dispatched" consumer_bound || exit 1
+    wait_until 120 "order-service consumer" consumer_bound order-dispatched.order-service || exit 1
+  fi
+  if has dispatcher-service; then
+    wait_until 120 "dispatcher-service consumer" consumer_bound order-accepted.dispatcher-service || exit 1
   fi
 }
 
@@ -184,9 +200,33 @@ rabbit() { # METHOD PATH [JSON] -> sets $CODE and $BODY
   [[ -n ${3:-} ]] && args+=(-H 'Content-Type: application/json' -d "$3")
   CODE=$(curl "${args[@]}" "$RABBIT$2"); BODY=$(cat "$WORK/body")
 }
-consumer_bound() {
-  rabbit GET /queues/%2F/order-dispatched.order-service
+consumer_bound() { # queue
+  rabbit GET "/queues/%2F/$1"
   [[ $CODE == 200 && $(json 'd.get("consumers", 0) > 0') == True ]]
+}
+# Capture messages sent to an exchange in a temporary queue. The services' exchanges are
+# normally declared on first use, so declare it here (same type) to bind before that.
+capture_start() { # exchange queue -> prints True when the binding is in place
+  rabbit PUT "/exchanges/%2F/$1" '{"type":"topic","durable":true}'
+  rabbit PUT "/queues/%2F/$2" '{"durable":false,"auto_delete":false}'
+  rabbit POST "/bindings/%2F/e/$1/q/$2" '{"routing_key":"#"}'
+  rabbit DELETE "/queues/%2F/$2/contents"
+  rabbit GET "/exchanges/%2F/$1/bindings/source"
+  json "any(b['destination'] == '$2' for b in d)"
+}
+capture_take() { # queue -> prints orderId of the next message, waiting up to 5 s
+  local got="" i
+  for i in 1 2 3 4 5; do
+    rabbit POST "/queues/%2F/$1/get" '{"count":1,"ackmode":"ack_requeue_false","encoding":"auto"}'
+    got=$(json 'json.loads(d[0]["payload"])["orderId"] if d else ""'); [[ -n $got ]] && break; sleep 1
+  done
+  echo "$got"
+}
+capture_stop() { rabbit DELETE "/queues/%2F/$1"; }
+publish_order_message() { # exchange orderId -> prints whether the message was routed
+  rabbit POST "/exchanges/%2F/$1/publish" \
+    "{\"properties\":{\"content_type\":\"application/json\"},\"routing_key\":\"#\",\"payload\":\"{\\\"orderId\\\":$2}\",\"payload_encoding\":\"string\"}"
+  json 'd["routed"]'
 }
 
 token() { # username -> access token whose issuer matches what the services expect
@@ -255,14 +295,7 @@ test_order() {
   req GET $ORDER/orders;                    check "GET /orders without token"        401 "$CODE"
   req POST $ORDER/orders "" "$order";       check "POST /orders without token"       401 "$CODE"
 
-  # Capture order-accepted events in a temporary queue. The exchange is normally declared by
-  # order-service on its first publish, so declare it here (same type) to bind before that.
-  rabbit PUT /exchanges/%2F/order-accepted '{"type":"topic","durable":true}'
-  rabbit PUT /queues/%2F/$capture '{"durable":false,"auto_delete":false}'
-  rabbit POST /bindings/%2F/e/order-accepted/q/$capture '{"routing_key":"#"}'
-  rabbit DELETE /queues/%2F/$capture/contents
-  rabbit GET /exchanges/%2F/order-accepted/bindings/source
-  check "capture queue bound to order-accepted" True "$(json "any(b['destination'] == '$capture' for b in d)")"
+  check "capture queue bound to order-accepted" True "$(capture_start order-accepted $capture)"
 
   req POST $ORDER/orders "$B" "$order";     check "POST order as bjorn"              200 "$CODE" "$BODY"
   local id; id=$(json 'd["id"]')
@@ -270,14 +303,8 @@ test_order() {
   check "order bookName from catalog"       "Northern Lights - Lyra Silverstar" "$(json 'd["bookName"]')"
   check "order bookPrice from catalog"      9.9 "$(json 'd["bookPrice"]')"
   check "order createdBy populated"         True "$(json 'd.get("createdBy") is not None')"
-
-  local got="" i
-  for i in 1 2 3 4 5; do
-    rabbit POST /queues/%2F/$capture/get '{"count":1,"ackmode":"ack_requeue_false","encoding":"auto"}'
-    got=$(json 'json.loads(d[0]["payload"])["orderId"] if d else ""'); [[ -n $got ]] && break; sleep 1
-  done
-  check "order-accepted event published"    "$id" "$got"
-  rabbit DELETE /queues/%2F/$capture
+  check "order-accepted event published"    "$id" "$(capture_take $capture)"
+  capture_stop $capture
 
   req POST $ORDER/orders "$B" '{"isbn":"0000000000","quantity":1}'
   check "POST unknown isbn"                 200 "$CODE"
@@ -294,25 +321,50 @@ test_order() {
   req GET $ORDER/orders "$I";               check "GET /orders as isabelle"          200 "$CODE"
   check "isabelle can't see bjorn's order"  False "$(json "any(o['id'] == $id for o in d)")"
 
-  # Simulate dispatcher-service: send order-dispatched and expect the status to change.
-  rabbit POST /exchanges/%2F/order-dispatched/publish \
-    "{\"properties\":{\"content_type\":\"application/json\"},\"routing_key\":\"#\",\"payload\":\"{\\\"orderId\\\":$id}\",\"payload_encoding\":\"string\"}"
-  check "order-dispatched message routed"   True "$(json 'd["routed"]')"
-  local status=""
-  for i in 1 2 3 4 5 6 7 8 9 10; do
+  # With dispatcher-service running, the accepted order is dispatched end to end. Without it,
+  # stand in for the dispatcher by sending order-dispatched directly.
+  local what="order DISPATCHED by dispatcher-service"
+  if ! has dispatcher-service; then
+    check "simulated order-dispatched routed" True "$(publish_order_message order-dispatched "$id")"
+    what="order DISPATCHED after simulated message"
+  fi
+  local status="" i
+  for i in $(seq 15); do
     req GET $ORDER/orders "$B"
     status=$(json "next(o['status'] for o in d if o['id'] == $id)")
     [[ $status == DISPATCHED ]] && break; sleep 1
   done
-  check "order status after dispatch"       DISPATCHED "$status"
+  check "$what"                             DISPATCHED "$status"
+}
+
+test_dispatcher() {
+  local capture=smoke-test.order-dispatched
+  # High enough not to match a real order, so order-service (if running) ignores it.
+  local id=$(( 900000000 + RANDOM ))
+
+  log "dispatcher-service ($DISPATCHER)"
+  req GET $DISPATCHER/actuator/health;           check "health status"               UP "$(json 'd["status"]')"
+  check "health rabbit component"                UP "$(json 'd["components"]["rabbit"]["status"]')"
+  req GET $DISPATCHER/actuator/health/liveness;  check "liveness probe"              200 "$CODE"
+  req GET $DISPATCHER/actuator/health/readiness; check "readiness probe"             200 "$CODE"
+  req GET $DISPATCHER/actuator/bindings
+  check "packlabel-in-0 binding running"         True "$(json "any(b['bindingName'] == 'packlabel-in-0' and b['state'] == 'running' for b in d)")"
+
+  check "capture queue bound to order-dispatched" True "$(capture_start order-dispatched $capture)"
+  check "order-accepted message routed"          True "$(publish_order_message order-accepted $id)"
+  check "order-dispatched emitted for same id"   "$id" "$(capture_take $capture)"
+  capture_stop $capture
 }
 
 run_tests() {
-  log "Preparing tokens"
-  ensure_test_client || exit 1
-  I=$(token isabelle) && B=$(token bjorn) || { echo "Could not obtain user tokens" >&2; exit 1; }
+  if needs_keycloak; then
+    log "Preparing tokens"
+    ensure_test_client || exit 1
+    I=$(token isabelle) && B=$(token bjorn) || { echo "Could not obtain user tokens" >&2; exit 1; }
+  fi
 
-  test_catalog
+  has catalog-service && test_catalog
+  has dispatcher-service && test_dispatcher
   has order-service && test_order
 
   log "Result: $PASS passed, $FAIL failed"
@@ -321,7 +373,9 @@ run_tests() {
 
 down() {
   log "Stopping stack"
-  podman rm -f catalog-service order-service >/dev/null 2>&1 && echo "Removed app containers"
+  local s
+  for s in "${ALL_APPS[@]}"; do podman rm -f "$s" >/dev/null 2>&1; done
+  echo "Removed app containers"
   podman-compose -f "$COMPOSE" down >/dev/null 2>&1 && echo "Compose services removed"
   podman ps --format '{{.Names}} {{.Status}}'
 }
