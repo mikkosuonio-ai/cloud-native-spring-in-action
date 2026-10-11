@@ -11,7 +11,6 @@ import reactor.core.publisher.Mono;
 
 import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class OrderService {
@@ -32,7 +31,9 @@ public class OrderService {
 		return orderRepository.findAllByCreatedBy(userId);
 	}
 
-	@Transactional
+	// Not @Transactional: the single save commits on its own, so the order-accepted event is only
+	// sent once the order is visible. Inside a transaction the event went out before the commit,
+	// and dispatcher-service's order-dispatched reply could find no order to update.
 	public Mono<Order> submitOrder(String isbn, int quantity) {
 		return bookClient.getBookByIsbn(isbn)
 				.map(book -> buildAcceptedOrder(book, quantity))
