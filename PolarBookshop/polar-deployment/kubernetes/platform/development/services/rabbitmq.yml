@@ -9,6 +9,9 @@ data:
     default_user = user
     default_pass = password
     vm_memory_high_watermark.relative = 1.0
+  # The volume replaces /etc/rabbitmq, so the image's own list of plugins has to be repeated here.
+  enabled_plugins: |
+    [rabbitmq_management,rabbitmq_prometheus].
 
 ---
 
