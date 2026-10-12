@@ -59,7 +59,7 @@ needs_observability() { selected observability; }
 # Services with actuator metrics and the OpenTelemetry agent.
 TRACED=(catalog-service order-service dispatcher-service config-service edge-service)
 # With config-service selected, catalog-service reads its configuration from it.
-config_client() { [[ $1 == catalog-service ]] && has config-service; }
+config_client() { [[ $1 == catalog-service ]] && has "$1" && has config-service; }
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "Not inside a git worktree" >&2; exit 2; }
 PB=$ROOT/PolarBookshop
