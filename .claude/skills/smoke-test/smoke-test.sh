@@ -1,35 +1,43 @@
 #!/usr/bin/env bash
-# Smoke test for PolarBookshop services running under Podman.
+# Smoke test for PolarBookshop services running under Podman, or on MicroK8s with --k8s.
 #
 # Usage: smoke-test.sh [up|test|down|all] [catalog] [order] [dispatcher] [config] [edge] [quote]
-#                      [quote-function] [observability] [--rebuild]
+#                      [quote-function] [observability] [--rebuild] [--k8s]
 #   up      build missing images (or all selected with --rebuild), start backing services + apps
 #   test    run the HTTP smoke tests against the running stack
-#   down    remove the app containers and the compose backing services
+#   down    remove the app containers and the compose backing services (--k8s: the namespace)
 #   all     up + test (default); leaves the stack running
 #
 # Services default to "catalog order dispatcher config"; edge, quote and quote-function must
 # be asked for, since the whole set doesn't fit in this machine's memory. order needs catalog,
 # and edge needs catalog, order and polar-ui; those are added automatically. observability adds
 # Prometheus, Tempo and Grafana and exports traces, on top of the default services if no other
-# service is given.
+# service is given. --k8s deploys the services' k8s/ manifests to the namespace polar-smoke
+# instead; it supports catalog, order, dispatcher and config.
 # Run from anywhere inside a worktree of the repository.
 set -uo pipefail
 
 CMD=all
 REBUILD=0
+K8S=0
 SELECTED=()
 for a in "$@"; do
   case $a in
     up|test|down|all)        CMD=$a ;;
     --rebuild)               REBUILD=1 ;;
+    --k8s)                   K8S=1 ;;
     catalog|order|dispatcher|config|edge|quote|quote-function|observability) SELECTED+=("$a") ;;
-    *) sed -n '2,15p' "$0"; exit 2 ;;
+    *) sed -n '2,17p' "$0"; exit 2 ;;
   esac
 done
 [[ " ${SELECTED[*]} " == *[a-z]* && " ${SELECTED[*]} " != " observability " ]] \
   || SELECTED+=(catalog order dispatcher config)
 selected() { [[ " ${SELECTED[*]} " == *" $1 "* ]]; }
+if (( K8S )); then
+  for a in edge quote quote-function observability; do
+    selected $a && { echo "$a isn't supported with --k8s yet" >&2; exit 2; }
+  done
+fi
 SERVICES=()
 selected config && SERVICES+=(config-service)
 selected catalog || selected order || selected edge && SERVICES+=(catalog-service)
@@ -58,8 +66,9 @@ needs_redis() { has edge-service; }
 needs_observability() { selected observability; }
 # Services with actuator metrics and the OpenTelemetry agent.
 TRACED=(catalog-service order-service dispatcher-service config-service edge-service)
-# With config-service selected, catalog-service reads its configuration from it.
-config_client() { [[ $1 == catalog-service ]] && has "$1" && has config-service; }
+# With config-service selected, catalog-service reads its configuration from it. Not on
+# Kubernetes, where its k8s/ manifests give it a ConfigMap instead.
+config_client() { (( ! K8S )) && [[ $1 == catalog-service ]] && has "$1" && has config-service; }
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "Not inside a git worktree" >&2; exit 2; }
 PB=$ROOT/PolarBookshop
@@ -91,10 +100,23 @@ PROMETHEUS=http://localhost:9090
 TEMPO=http://localhost:3110
 GRAFANA=http://localhost:3000
 GRAFANA_AUTH=user:password
+# Host part of the JWT issuer the services expect; tokens are requested with it as Host header.
+KC_HOST=host.docker.internal:8080
+# --k8s: the services are reached on their ClusterIPs (see k8s_urls), which MicroK8s routes from
+# the host. kubectl is MicroK8s' own unless KUBECTL names another one.
+NS=polar-smoke
+REGISTRY=localhost:32000   # MicroK8s registry addon
+read -ra KUBECTL <<<"${KUBECTL:-microk8s kubectl}"
+K8S_SERVICES=$PB/polar-deployment/kubernetes/platform/development/services
+# Production overlays' memory limit; without one the buildpack memory calculator sizes the
+# heap from the node's RAM. The request is lower so that pods fit on a small node.
+K8S_MEMORY_LIMIT=756Mi
+K8S_MEMORY_REQUEST=256Mi
 declare -A BASE_URL=([catalog-service]=$CATALOG [order-service]=$ORDER [dispatcher-service]=$DISPATCHER
                      [config-service]=$CONFIG [edge-service]=$EDGE)
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+PIDS=()   # background kubectl port-forwards
+trap 'kill "${PIDS[@]}" 2>/dev/null; rm -rf "$WORK"' EXIT
 
 log() { printf '\n== %s\n' "$*"; }
 
@@ -175,14 +197,7 @@ sys.stdout.write("\0".join(args) + "\0")
 EOF
 }
 
-up() {
-  command -v podman >/dev/null && command -v podman-compose >/dev/null \
-    || { echo "podman and podman-compose are required" >&2; exit 2; }
-
-  # Free the app containers' memory before any image build.
-  local s
-  for s in "${SERVICES[@]}"; do podman rm -f "$s" >/dev/null 2>&1; done
-
+check_memory() {
   # Rough figures seen in practice: keycloak+postgres ~1 GB, each Spring app ~350 MB,
   # rabbitmq ~100 MB, polar-ui + redis ~100 MB.
   local avail_mb need_mb=$(( 200 + 350 * ${#SERVICES[@]} ))
@@ -194,10 +209,13 @@ up() {
   avail_mb=$(free -m | awk '/^Mem:/ {print $7}')
   echo "Available memory: ${avail_mb} MiB (stack needs about ${need_mb} MiB)"
   (( avail_mb < need_mb )) && echo "WARNING: stack may be OOM-killed. Stop other containers / Gradle daemons first."
+}
 
+build_images() {
   log "Podman API socket"
   systemctl --user start podman.socket && echo "podman.socket active ($SOCK)"
 
+  local s
   for s in "${SERVICES[@]}"; do
     [[ -d $PB/$s ]] || continue   # prebuilt image (polar-ui); podman run pulls it
     if (( REBUILD )) || ! podman image exists "$s"; then
@@ -206,6 +224,27 @@ up() {
       echo "Using existing $s image (pass --rebuild to rebuild)"
     fi
   done
+}
+
+# Waits until the services' RabbitMQ consumers are attached; the services report ready before.
+wait_consumers() {
+  if has order-service; then
+    wait_until 120 "order-service consumer" consumer_bound order-dispatched.order-service || exit 1
+  fi
+  if has dispatcher-service; then
+    wait_until 120 "dispatcher-service consumer" consumer_bound order-accepted.dispatcher-service || exit 1
+  fi
+}
+
+up() {
+  command -v podman >/dev/null && command -v podman-compose >/dev/null \
+    || { echo "podman and podman-compose are required" >&2; exit 2; }
+
+  # Free the app containers' memory before any image build.
+  local s
+  for s in "${SERVICES[@]}"; do podman rm -f "$s" >/dev/null 2>&1; done
+  check_memory
+  build_images
 
   local backing=()
   needs_keycloak && backing+=(polar-postgres polar-keycloak)
@@ -260,18 +299,158 @@ up() {
   if needs_keycloak; then
     wait_until 180 "Keycloak realm" curl -sf "$KEYCLOAK/realms/PolarBookshop" || exit 1
   fi
-  # The services report ready before their RabbitMQ consumers are attached.
-  if has order-service; then
-    wait_until 120 "order-service consumer" consumer_bound order-dispatched.order-service || exit 1
-  fi
-  if has dispatcher-service; then
-    wait_until 120 "dispatcher-service consumer" consumer_bound order-accepted.dispatcher-service || exit 1
-  fi
+  wait_consumers
   if needs_observability; then
     wait_until 60 "Prometheus" curl -sf "$PROMETHEUS/-/ready" || exit 1
     wait_until 120 "Tempo" curl -sf "$TEMPO/ready" || exit 1
     wait_until 60 "Grafana" curl -sf "$GRAFANA/api/health" || exit 1
   fi
+}
+
+# ---- Kubernetes (--k8s) -----------------------------------------------------
+k() { "${KUBECTL[@]}" -n "$NS" "$@"; }
+
+# Points the URLs at the services' ClusterIPs, where they listen on port 80.
+k8s_urls() {
+  svc_url() { # service [port]
+    local ip; ip=$(k get svc "$1" -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+    [[ -n $ip ]] && echo "http://$ip${2:+:$2}"
+  }
+  CATALOG=$(svc_url catalog-service); ORDER=$(svc_url order-service)
+  DISPATCHER=$(svc_url dispatcher-service); CONFIG=$(svc_url config-service)
+  KEYCLOAK=$(svc_url polar-keycloak); RABBIT=$(svc_url polar-rabbitmq 15672)/api
+  BASE_URL=([catalog-service]=$CATALOG [order-service]=$ORDER [dispatcher-service]=$DISPATCHER
+            [config-service]=$CONFIG)
+  KC_HOST=polar-keycloak
+}
+
+# Keycloak's master realm requires HTTPS from non-private addresses, and requests from the host
+# to a ClusterIP arrive from the node's address. Through a port-forward they come from localhost.
+k8s_forward_keycloak() {
+  local port=38080
+  k port-forward svc/polar-keycloak "$port:80" >"$WORK/port-forward.log" 2>&1 &
+  PIDS+=($!)
+  KEYCLOAK=http://localhost:$port
+  wait_until 30 "Keycloak port-forward" curl -sf "$KEYCLOAK/realms/PolarBookshop" \
+    || { cat "$WORK/port-forward.log"; exit 1; }
+}
+
+k8s_check_cluster() {
+  "${KUBECTL[@]}" get --raw=/readyz >/dev/null 2>&1 \
+    || { echo "Kubernetes isn't reachable with '${KUBECTL[*]}'. Start it with: sudo microk8s start" >&2; exit 2; }
+  "${KUBECTL[@]}" -n kube-system get deployment coredns >/dev/null 2>&1 \
+    || { echo "Cluster DNS is missing. Enable it with: microk8s enable dns" >&2; exit 2; }
+  curl -sf "http://$REGISTRY/v2/" >/dev/null \
+    || { echo "No registry at $REGISTRY. Enable it with: microk8s enable registry" >&2; exit 2; }
+}
+
+# Pushes the image to the cluster's registry and prints its digest there.
+k8s_push() { # service
+  podman push -q --tls-verify=false --digestfile "$WORK/$1.digest" "$1" "$REGISTRY/$1:smoke-test" >/dev/null \
+    || { echo "Push of $1 to $REGISTRY FAILED" >&2; exit 1; }
+  cat "$WORK/$1.digest"
+}
+
+# Writes a kustomization over the service's own k8s/ that only swaps in the pushed image and
+# adds a memory limit, and prints its directory.
+k8s_overlay() { # service digest
+  local dir=$WORK/k8s/$1 base; mkdir -p "$dir"
+  # Kustomize takes a base directory only as a relative path.
+  base=$(realpath --relative-to="$dir" "$PB/$1/k8s")
+  cat > "$dir/kustomization.yml" <<YAML
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - $base
+images:
+  - name: $1
+    newName: $REGISTRY/$1
+    digest: $2
+patches:
+  - target:
+      kind: Deployment
+      name: $1
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: $K8S_MEMORY_REQUEST
+          limits:
+            memory: $K8S_MEMORY_LIMIT
+YAML
+  echo "$dir"
+}
+
+k8s_rollout() { # deployment
+  printf 'Waiting for %s rollout ' "$1"
+  if k rollout status "deployment/$1" --timeout=300s >/dev/null 2>&1; then
+    echo ok
+  else
+    echo TIMEOUT
+    k get pods -o wide
+    k logs "deployment/$1" --tail 40
+    k describe pods | sed -n '/^Events:/,/^$/p' | tail -20
+    exit 1
+  fi
+}
+
+k8s_up() {
+  command -v podman >/dev/null || { echo "podman is required to build the images" >&2; exit 2; }
+  k8s_check_cluster
+  check_memory
+  build_images
+
+  local backing=() files=() s
+  needs_keycloak && { backing+=(polar-postgres polar-keycloak); files+=(postgresql keycloak-config keycloak); }
+  needs_rabbit && { backing+=(polar-rabbitmq); files+=(rabbitmq); }
+
+  log "Namespace $NS"
+  "${KUBECTL[@]}" create namespace "$NS" --dry-run=client -o yaml | "${KUBECTL[@]}" apply -f - >/dev/null || exit 1
+  echo "Namespace ready"
+  if (( ${#files[@]} )); then
+    log "Deploying ${backing[*]}"
+    for s in "${files[@]}"; do k apply -f "$K8S_SERVICES/$s.yml" >/dev/null || exit 1; done
+    # The apps connect to PostgreSQL and RabbitMQ at startup; Keycloak is used on first request.
+    for s in "${backing[@]}"; do [[ $s == polar-keycloak ]] || k8s_rollout "$s"; done
+  fi
+
+  local digest
+  for s in "${SERVICES[@]}"; do
+    log "Deploying $s"
+    digest=$(k8s_push "$s") || exit 1
+    echo "Pushed $REGISTRY/$s@$digest"
+    k apply -k "$(k8s_overlay "$s" "$digest")" >/dev/null || exit 1
+  done
+  for s in "${SERVICES[@]}" "${backing[@]}"; do k8s_rollout "$s"; done
+
+  k8s_urls
+  if needs_keycloak; then
+    wait_until 180 "Keycloak realm" curl -sf "$KEYCLOAK/realms/PolarBookshop" || exit 1
+  fi
+  wait_consumers
+}
+
+k8s_down() {
+  log "Deleting namespace $NS"
+  "${KUBECTL[@]}" delete namespace "$NS" --ignore-not-found --wait=true >/dev/null && echo "Namespace deleted"
+  echo "The cluster keeps running; stop it with: sudo microk8s stop"
+}
+
+# The deployments as Kubernetes sees them: ready, never restarted (a failing liveness probe
+# restarts the container), running the pushed image, with the memory limit.
+test_k8s() {
+  log "Kubernetes deployments (namespace $NS)"
+  local s
+  for s in "${SERVICES[@]}"; do
+    BODY=$(k get pods -l "app=$s" -o json)
+    local cs='[c for p in d["items"] if not p["metadata"].get("deletionTimestamp") for c in p["status"].get("containerStatuses", [])]'
+    check "$s pod ready"                    True "$(json "len($cs) == 1 and $cs[0]['ready']")"
+    check "$s container restarts"           0 "$(json "sum(c['restartCount'] for c in $cs)")"
+    check "$s image from $REGISTRY"         True "$(json "all(c['imageID'].startswith('$REGISTRY/$s@') for c in $cs)")"
+    check "$s memory limit"                 "$K8S_MEMORY_LIMIT" \
+      "$(json "[c['resources']['limits']['memory'] for p in d['items'] for c in p['spec']['containers']][0]")"
+  done
 }
 
 # ---- test helpers -----------------------------------------------------------
@@ -327,7 +506,7 @@ publish_order_message() { # exchange orderId -> prints whether the message was r
 }
 
 token() { # username -> access token whose issuer matches what the services expect
-  curl -sf -H 'Host: host.docker.internal:8080' \
+  curl -sf -H "Host: $KC_HOST" \
     -d grant_type=password -d client_id=polar-test -d username="$1" -d password=password \
     "$KEYCLOAK/realms/PolarBookshop/protocol/openid-connect/token" \
     | python3 -I -c 'import sys,json; print(json.load(sys.stdin)["access_token"])'
@@ -356,8 +535,12 @@ test_catalog() {
 
   log "catalog-service ($CATALOG)"
   req GET $CATALOG/;                          check "GET / greeting"                 200 "$CODE" "$BODY"
-  config_client catalog-service \
-    || check "greeting from application.yml"  "Welcome to the local book catalog!" "$BODY"
+  if (( K8S )); then
+    check "greeting from the k8s ConfigMap"   "$(python3 -I -c 'import sys,yaml; print(yaml.safe_load(open(sys.argv[1]))["polar"]["greeting"])' \
+      "$PB/catalog-service/k8s/application.yml")" "$BODY"
+  elif ! config_client catalog-service; then
+    check "greeting from application.yml"     "Welcome to the local book catalog!" "$BODY"
+  fi
   req GET $CATALOG/actuator/health;           check "health status"                  UP "$(json 'd["status"]')"
   check "health db component"                 UP "$(json 'd["components"]["db"]["status"]')"
   req GET $CATALOG/actuator/health/liveness;  check "liveness probe"                 200 "$CODE"
@@ -766,6 +949,12 @@ test_observability() {
 }
 
 run_tests() {
+  if (( K8S )); then
+    k8s_check_cluster
+    k8s_urls
+    needs_keycloak && k8s_forward_keycloak
+    test_k8s
+  fi
   if needs_keycloak; then
     log "Preparing tokens"
     ensure_test_client || exit 1
@@ -796,6 +985,10 @@ down() {
   podman ps --format '{{.Names}} {{.Status}}'
 }
 
+if (( K8S )); then
+  up() { k8s_up; }
+  down() { k8s_down; }
+fi
 case $CMD in
   up)   up ;;
   test) run_tests ;;

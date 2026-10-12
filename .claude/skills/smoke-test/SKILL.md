@@ -1,9 +1,9 @@
 ---
 name: smoke-test
-description: Start PolarBookshop services (catalog, order, dispatcher, config, edge with polar-ui, quote, quote-function) with Podman and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, order-accepted/order-dispatched messaging, config serving and catalog-service reading its configuration from config-service, and the edge gateway's OAuth2 login, token relay, CSRF and circuit breaker, the quote endpoints of quote-service and quote-function's Spring Cloud Function endpoints, actuator metrics, and (with observability) Prometheus scraping, Tempo traces across services and Grafana provisioning. Use when asked to smoke test, run, or verify any of those services end to end.
+description: Start PolarBookshop services (catalog, order, dispatcher, config, edge with polar-ui, quote, quote-function) with Podman, or deploy catalog, order, dispatcher and config to a MicroK8s Kubernetes cluster from their k8s/ manifests, and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, order-accepted/order-dispatched messaging, config serving and catalog-service reading its configuration from config-service, and the edge gateway's OAuth2 login, token relay, CSRF and circuit breaker, the quote endpoints of quote-service and quote-function's Spring Cloud Function endpoints, actuator metrics, and (with observability) Prometheus scraping, Tempo traces across services and Grafana provisioning. Use when asked to smoke test, run, or verify any of those services end to end.
 ---
 
-# PolarBookshop smoke test (Podman)
+# PolarBookshop smoke test (Podman, MicroK8s)
 
 This server has Podman 4.9 and podman-compose, and no Docker. The script `smoke-test.sh` in this
 skill directory does the whole job. Run it from the worktree root:
@@ -20,6 +20,7 @@ bash .claude/skills/smoke-test/smoke-test.sh all order dispatcher observability 
 bash .claude/skills/smoke-test/smoke-test.sh all --rebuild    # rebuild the selected images from this worktree's code first
 bash .claude/skills/smoke-test/smoke-test.sh test             # rerun the tests against a running stack
 bash .claude/skills/smoke-test/smoke-test.sh down             # remove all the containers
+bash .claude/skills/smoke-test/smoke-test.sh all catalog --k8s  # on MicroK8s instead, see "Kubernetes"
 ```
 
 Services default to `catalog order dispatcher config`, and any combination can be given. `edge` is
@@ -60,7 +61,8 @@ script reuses existing images, which may have been built from another worktree o
 2. Run `smoke-test.sh all` (add a selection and/or `--rebuild` if needed) with a Bash timeout of
    about 10 minutes. The first build of each service pulls its Paketo builder.
 3. Report the PASS/FAIL lines to the user. The script exits non-zero if any check fails. On a
-   failure, look at `podman logs <service>` before reporting.
+   failure, look at `podman logs <service>` (with `--k8s`, `microk8s kubectl -n polar-smoke logs
+   deployment/<service>` and the namespace's events) before reporting.
 4. Ask the user whether to keep the stack running or run `smoke-test.sh down`.
 
 ## What the script does (and why)
@@ -171,6 +173,77 @@ script reuses existing images, which may have been built from another worktree o
   neither has an actuator.
 - Leaves the orders it creates in the database, because order-service has no delete endpoint.
 
+## Kubernetes (`--k8s`)
+
+With `--k8s` the script deploys to a MicroK8s cluster instead of starting Podman containers. It
+supports catalog, order, dispatcher and config, the services with a `k8s/` directory; it refuses
+edge, quote, quote-function and observability (see Future work 6). The selection, the commands and
+the HTTP checks are the same as with Podman.
+
+### Prerequisites
+
+Once per machine:
+
+```bash
+sudo snap install microk8s --classic
+sudo usermod -a -G microk8s $USER   # then log in again, or run `newgrp microk8s`
+microk8s status --wait-ready
+microk8s enable dns
+microk8s enable registry
+```
+
+`dns` gives the pods the Service names the manifests use (`polar-postgres`, `polar-rabbitmq`,
+...). `registry` runs an image registry at `localhost:32000`, which the script pushes the Podman
+images to. Podman is still needed, to build the images.
+
+Starting and stopping the cluster needs sudo, so ask the user to do it:
+
+```bash
+sudo microk8s start
+sudo microk8s stop    # when done; the idle cluster holds about 0.6 GiB
+```
+
+The Podman stack and the cluster shouldn't run at the same time on this machine. A session that
+started before the user joined the `microk8s` group doesn't have the group yet; run the script
+with `sg microk8s -c 'bash .claude/skills/smoke-test/smoke-test.sh all catalog --k8s'`. To use
+another cluster, set `KUBECTL` to its kubectl command (it needs the same registry setup).
+
+### Memory on this machine
+
+With the idle cluster, about 2.1 GiB is available.
+- dispatcher, config or catalog (with PostgreSQL and Keycloak) alone each start cleanly.
+- `order dispatcher` and the default set fit when added to a running namespace one step at a time
+  (catalog, then order, then dispatcher, then config); the default set leaves ~0.65 GiB.
+- A cold start of the default set also passes its HTTP checks, but the four JVMs and Keycloak
+  starting together on 2 CPUs take longer than the liveness probes allow, so every app container
+  is restarted 3-4 times and the restart checks fail. See `PolarBookshop/findings.md`.
+
+On a bigger machine, a cold `all --k8s` is the run to aim for.
+
+### What it does
+
+- Deploys into its own namespace, `polar-smoke`; `down` deletes the namespace.
+- Deploys the backing services from `polar-deployment/kubernetes/platform/development/services/`:
+  PostgreSQL and Keycloak for catalog and order, RabbitMQ for order and dispatcher. The apps are
+  deployed once PostgreSQL and RabbitMQ have rolled out; Keycloak is only used on first request,
+  so it's waited for afterwards.
+- Builds missing images with Podman as usual, pushes them to `localhost:32000` and deploys each
+  app from its own `k8s/` kustomization through a generated overlay. The overlay changes only two
+  things:
+  - the image, referenced by the pushed digest, so a `--rebuild` always rolls out;
+  - a memory limit of 756Mi, the production overlays' value, with a 256Mi request. Without a
+    limit the buildpack memory calculator sizes the heap from the node's RAM.
+- Reaches the services on their ClusterIPs, which MicroK8s routes from the host, except Keycloak:
+  its master realm requires HTTPS for requests from non-private addresses, and requests from the
+  host to a ClusterIP come from the node's public address. During `test` the script reaches
+  Keycloak through a `kubectl port-forward` on `localhost:38080` instead, and requests tokens with
+  `Host: polar-keycloak`, the issuer the `k8s/` configs use.
+- Adds checks for each app's pod: ready, no container restarts (a failing liveness probe shows up
+  here), running the pushed image, and the memory limit. catalog-service's greeting must be the one
+  in its `k8s/application.yml` ConfigMap. catalog-service isn't a config client on Kubernetes,
+  because its manifests don't make it one.
+- Leaves the cluster running; ask the user whether to stop it.
+
 ## Future work
 
 Not verified yet, roughly in order of value:
@@ -196,13 +269,22 @@ Not verified yet, roughly in order of value:
    Redis (it survives an edge-service restart), would cover the Redis side properly.
 5. **Actuator exposure.** The services expose `env`, `heapdump` and `configprops`. A check that none
    of these can be reached through edge-service (port 9000) would catch an accidental route.
-6. **Kubernetes and Knative manifests** (`polar-deployment/kubernetes/`, `quote-function/knative/`).
-   Nothing checks these. Running them needs a local cluster such as kind or minikube, which
-   probably won't fit in 4 GB next to the apps. A realistic option is a static check
-   (`kubectl kustomize` plus kubeconform) rather than deploying.
+6. **The rest of Kubernetes.** `--k8s` covers catalog, order, dispatcher and config with the
+   development manifests. Still missing:
+   - edge-service and polar-ui, for the whole system on a bigger machine. That needs the
+     `ingress` addon for `polar-ingress`, the browser login flow pointed at `polar-keycloak`
+     (`--connect-to polar-keycloak:80:localhost:38080` over the port-forward), and the circuit
+     breaker test freezing catalog-service some other way than `podman pause`;
+   - observability on Kubernetes (the book installs Grafana's stack with Helm);
+   - the staging and production overlays in `polar-deployment/kubernetes/applications/`, which
+     pull ghcr images and need secrets; rendering them with `kubectl kustomize` and validating with
+     `kubectl apply --dry-run=server` would be cheap;
+   - graceful shutdown through the `preStop` hook, with a `kubectl rollout restart` during traffic;
+   - the Knative services of quote-service and quote-function, which need more memory than this
+     machine has.
 7. **Native images.** Both quote services are meant to ship as native images but are tested as JVM
    images. Native compilation doesn't fit in this machine's memory, so it belongs in CI or on a
    bigger machine.
 
-4 is small and checks something the design depends on. 6 and 7 need more resources than this
-machine has.
+4 is small and checks something the design depends on. 7 and most of 6 need more resources
+than this machine has.
