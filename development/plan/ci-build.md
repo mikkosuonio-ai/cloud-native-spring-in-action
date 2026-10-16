@@ -61,21 +61,18 @@ builds its own images and there is no `images` job.
 all seven services.
 
 Changes:
-- Make the matrix list service names instead of paths, with `PolarBookshop/<service>` as the
-  working directory. Artifact names can't contain `/`, and the job names get shorter.
-  ```yaml
-  strategy:
-    matrix:
-      service: [quote-service, quote-function, dispatcher-service, config-service, order-service, edge-service]
-  defaults:
-    run:
-      working-directory: PolarBookshop/${{ matrix.service }}
-  ```
+- Keep the matrices as lists of project paths, so that other projects, such as the `Chapter*`
+  snapshots, can be added to them. The steps run in `${{ matrix.project }}` through
+  `defaults.run.working-directory`.
 - Move the `build` job from `ubuntu-22.04` to `ubuntu-24.04`. GitHub began deprecating the Ubuntu
   22.04 images in September 2026 and stops supporting them in April 2027, and every job then runs
   on the server's Ubuntu release.
 - After `./gradlew build`, upload `build/test-results/test/`, `build/reports/tests/test/` and
-  `build/reports/jacoco/test/` as `reports-<service>` with `actions/upload-artifact@v7`. Use
+  `build/reports/jacoco/test/` with `actions/upload-artifact@v7`. Artifact names can't contain
+  `/`, so a step names the artifact after the project path with `-` for `/`, for example
+  `reports-PolarBookshop-catalog-service`. It also adds a `project.txt` with the project's
+  path, which the summary shows, and which keeps the artifact from being empty when the build
+  fails before the tests. Use
   `if: ${{ !cancelled() }}`, so that a failing test still keeps its report (Gradle writes the
   test reports and, through `finalizedBy`, the JaCoCo report even when a test fails), and a
   short retention, for example 14 days.
@@ -84,7 +81,7 @@ Changes:
   counters) and prints a Markdown table.
 - Add a `reports` job (`needs` both build jobs, `if: ${{ !cancelled() }}`) that downloads the
   `reports-*` artifacts with `actions/download-artifact@v8` and writes the table to
-  `$GITHUB_STEP_SUMMARY`, one row per service. A service without reports, such as one that
+  `$GITHUB_STEP_SUMMARY`, one row per project. A project without test results, such as one that
   failed to compile, still gets a row, and failed tests are listed by name.
 
 Optional: annotations for failing tests with a JUnit report action such as

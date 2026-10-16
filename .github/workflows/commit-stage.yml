@@ -6,7 +6,7 @@ on:
 
 jobs:
   build-java-21:
-    name: Build and Test ${{ matrix.service }}
+    name: Build and Test ${{ matrix.project }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -14,12 +14,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [
-          catalog-service,
+        project: [
+          PolarBookshop/catalog-service,
         ]
     defaults:
       run:
-        working-directory: PolarBookshop/${{ matrix.service }}
+        working-directory: ${{ matrix.project }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -33,19 +33,31 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew build
+      # Artifact names can't contain "/". project.txt gives the summary the project's path,
+      # and keeps the artifact from being empty when the build fails before the tests.
+      - name: Prepare test and coverage reports
+        id: reports
+        if: ${{ !cancelled() }}
+        env:
+          PROJECT: ${{ matrix.project }}
+        run: |
+          mkdir -p build
+          echo "$PROJECT" > build/project.txt
+          echo "artifact=reports-${PROJECT//\//-}" >> "$GITHUB_OUTPUT"
       - name: Upload test and coverage reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: reports-${{ matrix.service }}
+          name: ${{ steps.reports.outputs.artifact }}
           path: |
-            PolarBookshop/${{ matrix.service }}/build/test-results/test/
-            PolarBookshop/${{ matrix.service }}/build/reports/tests/test/
-            PolarBookshop/${{ matrix.service }}/build/reports/jacoco/test/
+            ${{ matrix.project }}/build/project.txt
+            ${{ matrix.project }}/build/test-results/test/
+            ${{ matrix.project }}/build/reports/tests/test/
+            ${{ matrix.project }}/build/reports/jacoco/test/
           retention-days: 14
 
   build:
-    name: Build and Test ${{ matrix.service }}
+    name: Build and Test ${{ matrix.project }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -53,17 +65,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [
-          quote-service,
-          quote-function,
-          dispatcher-service,
-          config-service,
-          order-service,
-          edge-service,
+        project: [
+          PolarBookshop/quote-service,
+          PolarBookshop/quote-function,
+          PolarBookshop/dispatcher-service,
+          PolarBookshop/config-service,
+          PolarBookshop/order-service,
+          PolarBookshop/edge-service,
         ]
     defaults:
       run:
-        working-directory: PolarBookshop/${{ matrix.service }}
+        working-directory: ${{ matrix.project }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -77,15 +89,27 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew build
+      # Artifact names can't contain "/". project.txt gives the summary the project's path,
+      # and keeps the artifact from being empty when the build fails before the tests.
+      - name: Prepare test and coverage reports
+        id: reports
+        if: ${{ !cancelled() }}
+        env:
+          PROJECT: ${{ matrix.project }}
+        run: |
+          mkdir -p build
+          echo "$PROJECT" > build/project.txt
+          echo "artifact=reports-${PROJECT//\//-}" >> "$GITHUB_OUTPUT"
       - name: Upload test and coverage reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: reports-${{ matrix.service }}
+          name: ${{ steps.reports.outputs.artifact }}
           path: |
-            PolarBookshop/${{ matrix.service }}/build/test-results/test/
-            PolarBookshop/${{ matrix.service }}/build/reports/tests/test/
-            PolarBookshop/${{ matrix.service }}/build/reports/jacoco/test/
+            ${{ matrix.project }}/build/project.txt
+            ${{ matrix.project }}/build/test-results/test/
+            ${{ matrix.project }}/build/reports/tests/test/
+            ${{ matrix.project }}/build/reports/jacoco/test/
           retention-days: 14
 
   reports:
@@ -105,7 +129,7 @@ jobs:
           pattern: reports-*
           path: reports
       - name: Summarize reports
-        run: python3 .github/scripts/report-summary.py reports PolarBookshop >> "$GITHUB_STEP_SUMMARY"
+        run: python3 .github/scripts/report-summary.py reports >> "$GITHUB_STEP_SUMMARY"
 
   native-build:
     name: Native Build and Test ${{ matrix.project }}

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Prints a Markdown summary of the PolarBookshop services' test and JaCoCo reports.
+"""Prints a Markdown summary of the test and JaCoCo reports of the projects built in CI.
 
-Usage: report-summary.py REPORTS_DIR PROJECTS_DIR
+Usage: report-summary.py REPORTS_DIR
 
-REPORTS_DIR has one directory per service, reports-<service>, holding what the build jobs
-upload from the service's build/ directory: test-results/test/ and reports/jacoco/test/.
-Every directory in PROJECTS_DIR with a build.gradle is a service, so a service whose build
-left no reports still gets a row.
+REPORTS_DIR has one reports-* directory per project, holding what its build job uploads from
+the project's build/ directory: project.txt with the project's path, test-results/test/ and
+reports/jacoco/test/. project.txt is uploaded even when the build fails before the tests, so
+such a project still gets a row.
 """
 import sys
 import xml.etree.ElementTree as ET
@@ -49,31 +49,39 @@ def coverage(build):
     return percent("LINE"), percent("BRANCH")
 
 
-def main(reports_dir, projects_dir):
-    services = sorted(p.parent.name for p in Path(projects_dir).glob("*/build.gradle"))
+def project_name(build):
+    """The project's path from project.txt, or the artifact's name without it."""
+    file = build / "project.txt"
+    return file.read_text().strip() if file.is_file() else build.name.removeprefix("reports-")
+
+
+def main(reports_dir):
+    projects = sorted((project_name(build), build) for build in Path(reports_dir).glob("reports-*"))
     print("## Tests and coverage\n")
-    print("| Service | Result | Tests | Failed | Skipped | Line coverage | Branch coverage |")
+    if not projects:
+        print("No reports were uploaded.")
+        return
+    print("| Project | Result | Tests | Failed | Skipped | Line coverage | Branch coverage |")
     print("|---|---|--:|--:|--:|--:|--:|")
     failures = []
-    for service in services:
-        build = Path(reports_dir) / f"reports-{service}"
+    for project, build in projects:
         results = test_results(build)
         if results is None:
-            print(f"| {service} | no test results | | | | | |")
+            print(f"| {project} | no test results | | | | | |")
             continue
         tests, failed, skipped, names = results
         line, branch = coverage(build)
         result = "failed" if failed else "passed"
-        print(f"| {service} | {result} | {tests} | {failed} | {skipped} | {line} | {branch} |")
-        failures += [(service, name) for name in names]
+        print(f"| {project} | {result} | {tests} | {failed} | {skipped} | {line} | {branch} |")
+        failures += [(project, name) for name in names]
     if failures:
         print("\n### Failed tests\n")
-        for service, name in failures:
-            print(f"- {service}: `{name}`")
-    print("\nThe HTML test and coverage reports are in this run's `reports-<service>` artifacts.")
+        for project, name in failures:
+            print(f"- {project}: `{name}`")
+    print("\nThe HTML test and coverage reports are in this run's `reports-*` artifacts.")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 2:
         sys.exit(__doc__)
-    main(*sys.argv[1:])
+    main(sys.argv[1])
