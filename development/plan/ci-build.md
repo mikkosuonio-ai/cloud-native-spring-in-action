@@ -75,14 +75,17 @@ Changes:
   22.04 images in September 2026 and stops supporting them in April 2027, and every job then runs
   on the server's Ubuntu release.
 - After `./gradlew build`, upload `build/test-results/test/`, `build/reports/tests/test/` and
-  `build/reports/jacoco/test/` as `reports-<service>` with `actions/upload-artifact@v4`. Use
-  `if: always()`, so that a failing test still keeps its report, and a short retention, for
-  example 14 days.
+  `build/reports/jacoco/test/` as `reports-<service>` with `actions/upload-artifact@v7`. Use
+  `if: ${{ !cancelled() }}`, so that a failing test still keeps its report (Gradle writes the
+  test reports and, through `finalizedBy`, the JaCoCo report even when a test fails), and a
+  short retention, for example 14 days.
 - Add a small script, `.github/scripts/report-summary.py` (standard library only). It reads the
   JUnit XML files (tests, failures, errors, skipped) and `jacocoTestReport.xml` (line and branch
   counters) and prints a Markdown table.
-- Add a `reports` job (`needs` both build jobs, `if: always()`) that downloads the `reports-*`
-  artifacts and writes the table to `$GITHUB_STEP_SUMMARY`, one row per service.
+- Add a `reports` job (`needs` both build jobs, `if: ${{ !cancelled() }}`) that downloads the
+  `reports-*` artifacts with `actions/download-artifact@v8` and writes the table to
+  `$GITHUB_STEP_SUMMARY`, one row per service. A service without reports, such as one that
+  failed to compile, still gets a row, and failed tests are listed by name.
 
 Optional: annotations for failing tests with a JUnit report action such as
 `mikepenz/action-junit-report`. It needs the `checks: write` permission.

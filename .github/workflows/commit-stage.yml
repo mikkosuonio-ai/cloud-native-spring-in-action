@@ -6,7 +6,7 @@ on:
 
 jobs:
   build-java-21:
-    name: Build and Test ${{ matrix.project }}
+    name: Build and Test ${{ matrix.service }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -14,9 +14,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [
-          PolarBookshop/catalog-service,
+        service: [
+          catalog-service,
         ]
+    defaults:
+      run:
+        working-directory: PolarBookshop/${{ matrix.service }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -28,27 +31,39 @@ jobs:
           cache: gradle
       - name: Build, unit tests and integration tests
         run: |
-          cd ${{ matrix.project }}
           chmod +x gradlew
           ./gradlew build
+      - name: Upload test and coverage reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports-${{ matrix.service }}
+          path: |
+            PolarBookshop/${{ matrix.service }}/build/test-results/test/
+            PolarBookshop/${{ matrix.service }}/build/reports/tests/test/
+            PolarBookshop/${{ matrix.service }}/build/reports/jacoco/test/
+          retention-days: 14
 
   build:
-    name: Build and Test ${{ matrix.project }}
-    runs-on: ubuntu-22.04
+    name: Build and Test ${{ matrix.service }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       security-events: write
     strategy:
       fail-fast: false
       matrix:
-        project: [
-          PolarBookshop/quote-service,
-          PolarBookshop/quote-function,
-          PolarBookshop/dispatcher-service,
-          PolarBookshop/config-service,
-          PolarBookshop/order-service,
-          PolarBookshop/edge-service,
+        service: [
+          quote-service,
+          quote-function,
+          dispatcher-service,
+          config-service,
+          order-service,
+          edge-service,
         ]
+    defaults:
+      run:
+        working-directory: PolarBookshop/${{ matrix.service }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -60,10 +75,38 @@ jobs:
           cache: gradle
       - name: Build, unit tests and integration tests
         run: |
-          cd ${{ matrix.project }}
           chmod +x gradlew
           ./gradlew build
-  
+      - name: Upload test and coverage reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports-${{ matrix.service }}
+          path: |
+            PolarBookshop/${{ matrix.service }}/build/test-results/test/
+            PolarBookshop/${{ matrix.service }}/build/reports/tests/test/
+            PolarBookshop/${{ matrix.service }}/build/reports/jacoco/test/
+          retention-days: 14
+
+  reports:
+    name: Test and coverage reports
+    needs: [build-java-21, build]
+    # Also after failed builds: the summary shows what failed.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Download reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: reports-*
+          path: reports
+      - name: Summarize reports
+        run: python3 .github/scripts/report-summary.py reports PolarBookshop >> "$GITHUB_STEP_SUMMARY"
+
   native-build:
     name: Native Build and Test ${{ matrix.project }}
     if: false   # disabled
