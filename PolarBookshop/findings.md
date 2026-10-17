@@ -1,6 +1,7 @@
 # Findings
 
-Issues found while running the smoke tests (`.claude/skills/smoke-test/`).
+Issues found while running the smoke tests (`development/script/smoke-test.sh`, run through the
+`smoke-test` skill in `.claude/skills/smoke-test/`).
 
 ## Open
 

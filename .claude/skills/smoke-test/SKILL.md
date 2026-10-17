@@ -5,22 +5,22 @@ description: Start PolarBookshop services (catalog, order, dispatcher, config, e
 
 # PolarBookshop smoke test (Podman, MicroK8s)
 
-This server has Podman 4.9 and podman-compose, and no Docker. The script `smoke-test.sh` in this
-skill directory does the whole job. Run it from the worktree root:
+This server has Podman 4.9 and podman-compose, and no Docker. The script
+`development/script/smoke-test.sh` does the whole job. Run it from the worktree root:
 
 ```bash
-bash .claude/skills/smoke-test/smoke-test.sh all              # up + test catalog, order, dispatcher, config
-bash .claude/skills/smoke-test/smoke-test.sh all edge         # edge-service (+ catalog, order, polar-ui)
-bash .claude/skills/smoke-test/smoke-test.sh all catalog      # catalog-service only (postgres + keycloak)
-bash .claude/skills/smoke-test/smoke-test.sh all dispatcher   # dispatcher-service only (rabbitmq)
-bash .claude/skills/smoke-test/smoke-test.sh all config       # config-service only (no backing services)
-bash .claude/skills/smoke-test/smoke-test.sh all quote        # quote-service only (no backing services)
-bash .claude/skills/smoke-test/smoke-test.sh all quote-function  # quote-function only (no backing services)
-bash .claude/skills/smoke-test/smoke-test.sh all order dispatcher observability  # + Prometheus, Tempo, Grafana
-bash .claude/skills/smoke-test/smoke-test.sh all --rebuild    # rebuild the selected images from this worktree's code first
-bash .claude/skills/smoke-test/smoke-test.sh test             # rerun the tests against a running stack
-bash .claude/skills/smoke-test/smoke-test.sh down             # remove all the containers
-bash .claude/skills/smoke-test/smoke-test.sh all catalog --k8s  # on MicroK8s instead, see "Kubernetes"
+bash development/script/smoke-test.sh all              # up + test catalog, order, dispatcher, config
+bash development/script/smoke-test.sh all edge         # edge-service (+ catalog, order, polar-ui)
+bash development/script/smoke-test.sh all catalog      # catalog-service only (postgres + keycloak)
+bash development/script/smoke-test.sh all dispatcher   # dispatcher-service only (rabbitmq)
+bash development/script/smoke-test.sh all config       # config-service only (no backing services)
+bash development/script/smoke-test.sh all quote        # quote-service only (no backing services)
+bash development/script/smoke-test.sh all quote-function  # quote-function only (no backing services)
+bash development/script/smoke-test.sh all order dispatcher observability  # + Prometheus, Tempo, Grafana
+bash development/script/smoke-test.sh all --rebuild    # rebuild the selected images from this worktree's code first
+bash development/script/smoke-test.sh test             # rerun the tests against a running stack
+bash development/script/smoke-test.sh down             # remove all the containers
+bash development/script/smoke-test.sh all catalog --k8s  # on MicroK8s instead, see "Kubernetes"
 ```
 
 Services default to `catalog order dispatcher config`, and any combination can be given. `edge` is
@@ -205,7 +205,7 @@ sudo microk8s stop    # when done; the idle cluster holds about 0.6 GiB
 
 The Podman stack and the cluster shouldn't run at the same time on this machine. A session that
 started before the user joined the `microk8s` group doesn't have the group yet; run the script
-with `sg microk8s -c 'bash .claude/skills/smoke-test/smoke-test.sh all catalog --k8s'`. To use
+with `sg microk8s -c 'bash development/script/smoke-test.sh all catalog --k8s'`. To use
 another cluster, set `KUBECTL` to its kubectl command (it needs the same registry setup).
 
 ### Memory on this machine
