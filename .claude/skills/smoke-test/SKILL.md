@@ -20,6 +20,7 @@ bash development/script/smoke-test.sh all order dispatcher observability  # + Pr
 bash development/script/smoke-test.sh all --rebuild    # rebuild the selected images from this worktree's code first
 bash development/script/smoke-test.sh test             # rerun the tests against a running stack
 bash development/script/smoke-test.sh down             # remove all the containers
+bash development/script/smoke-test.sh logs DIR         # write the containers' state and logs to DIR
 bash development/script/smoke-test.sh help             # usage; a call without a command prints it too
 bash development/script/smoke-test.sh all catalog --k8s  # on MicroK8s instead, see "Kubernetes"
 ```
@@ -45,6 +46,13 @@ doesn't fit in memory. `order dispatcher observability` covers the whole order f
 Pass `--rebuild` when the user wants to test the current code in the worktree. Without it, the
 script reuses existing images, which may have been built from another worktree or an older commit.
 
+CI runs the same script. Three environment variables are for it, and for machines set up
+differently from this one:
+- `SMOKE_JDK_17` and `SMOKE_JDK_21` name the JDKs for the image builds instead of the sdkman ones.
+- `SMOKE_JUNIT=<file>` makes `test` and `all` also write every check to the file as a JUnit test
+  case. A run that stops before its tests finish, such as one whose `up` fails, gets an error
+  case named after the step it stopped in.
+
 ## Steps
 
 1. **Check memory first.** The machine has ~4 GB RAM and no swap. Run `free -h` and make sure no
@@ -62,19 +70,24 @@ script reuses existing images, which may have been built from another worktree o
 2. Run `smoke-test.sh all` (add a selection and/or `--rebuild` if needed) with a Bash timeout of
    about 10 minutes. The first build of each service pulls its Paketo builder.
 3. Report the PASS/FAIL lines to the user. The script exits non-zero if any check fails. On a
-   failure, look at `podman logs <service>` (with `--k8s`, `microk8s kubectl -n polar-smoke logs
-   deployment/<service>` and the namespace's events) before reporting.
+   failure, run `smoke-test.sh logs <dir>` (with `--k8s` for the cluster) and look at the logs
+   before reporting. It writes each container's log, their state including exit codes and OOM
+   kills, and the memory use. With `--k8s` it writes the namespace's resources, events, pod
+   descriptions, and each deployment's log, including the log before a restart.
 4. Ask the user whether to keep the stack running or run `smoke-test.sh down`.
 
 ## What the script does (and why)
 
-- Starts `podman.socket` and builds missing images with `bootBuildImage`. It points Gradle at the
-  Podman socket with `bindHostToBuilder = true` through a temporary init script, so `build.gradle`
-  is not changed.
+- Builds missing images with `bootBuildImage`. It points Gradle at Podman's API socket with
+  `bindHostToBuilder = true` through a temporary init script, so `build.gradle` is not changed. It
+  asks Podman for the socket's path and starts `podman.socket` with systemd. Without a systemd
+  user session, as on CI runners, it runs `podman system service` for the length of the run
+  instead.
 - Runs each build on a JDK installed with sdkman (`~/.sdkman/candidates/java`): 21 by default and
   17 for quote-service and quote-function. Both use Spring Native 0.12, whose AOT step can't read Java 21
   class files. This is an interim setup until all projects move to the same JDK and builds use a
-  preset `JAVA_HOME`. If a JDK is missing, install it with `sdk install java <version>`.
+  preset `JAVA_HOME`. If a JDK is missing, install it with `sdk install java <version>`, or point
+  `SMOKE_JDK_17`/`SMOKE_JDK_21` at another installation.
 - Builds quote-service and quote-function as JVM images, although their `build.gradle` asks for a native one
   (`BP_NATIVE_IMAGE=true`). Native compilation needs more memory than this machine has. The init
   script overrides the variable to `false` in `afterEvaluate`, so it runs after `build.gradle` sets it.

@@ -3,10 +3,13 @@
 #
 # Usage: smoke-test.sh up|test|down|all [catalog] [order] [dispatcher] [config] [edge] [quote]
 #                      [quote-function] [observability] [--rebuild] [--k8s]
+#        smoke-test.sh logs DIR [--k8s]
 #   up      build missing images (or all selected with --rebuild), start backing services + apps
 #   test    run the HTTP smoke tests against the running stack
 #   down    remove the app containers and the compose backing services (--k8s: the namespace)
 #   all     up + test; leaves the stack running
+#   logs    write the containers' state and logs to DIR (--k8s: the namespace's resources,
+#           events and deployment logs), for example after a failed run
 #   help    print this text, as does a call without a command
 #
 # Services default to "catalog order dispatcher config"; edge, quote and quote-function must
@@ -15,23 +18,31 @@
 # Prometheus, Tempo and Grafana and exports traces, on top of the default services if no other
 # service is given. --k8s deploys the services' k8s/ manifests to the namespace polar-smoke
 # instead; it supports catalog, order, dispatcher and config.
+#
+# Environment:
+#   SMOKE_JDK_17, SMOKE_JDK_21  JDKs the image builds run on (default: the sdkman installations)
+#   SMOKE_JUNIT=FILE            test and all also write each check to FILE as JUnit XML
+#   KUBECTL                     kubectl command for --k8s (default: microk8s kubectl)
 # Run from anywhere inside a worktree of the repository.
 set -uo pipefail
 
-usage() { sed -n '2,18p' "$0"; }
+usage() { sed -n '2,/^set /{/^#/p}' "$0"; }
 CMD=
+LOGS_DIR=
 REBUILD=0
 K8S=0
 SELECTED=()
-for a in "$@"; do
-  case $a in
-    up|test|down|all)        CMD=$a ;;
+while (( $# )); do
+  case $1 in
+    up|test|down|all)        CMD=$1 ;;
+    logs)                    CMD=logs LOGS_DIR=${2:-}; [[ $LOGS_DIR == [^-]* ]] || { usage; exit 2; }; shift ;;
     help|-h|--help)          usage; exit 0 ;;
     --rebuild)               REBUILD=1 ;;
     --k8s)                   K8S=1 ;;
-    catalog|order|dispatcher|config|edge|quote|quote-function|observability) SELECTED+=("$a") ;;
+    catalog|order|dispatcher|config|edge|quote|quote-function|observability) SELECTED+=("$1") ;;
     *) usage; exit 2 ;;
   esac
+  shift
 done
 # No default command: a bare call would otherwise start the whole default stack.
 [[ -n $CMD ]] || { usage; exit 2; }
@@ -58,12 +69,14 @@ declare -A STANDALONE_PORT=([quote-service]=9101 [quote-function]=9102)
 # Services whose build.gradle asks for a GraalVM native image; built as JVM images instead,
 # because native compilation needs more memory than this machine has.
 JVM_INSTEAD_OF_NATIVE=" quote-service quote-function "
-# JDK each build runs on, installed with sdkman. Spring Native 0.12 (quote-service, quote-function) can't read
+# JDK each build runs on, installed with sdkman unless SMOKE_JDK_17/SMOKE_JDK_21 name others, as
+# in CI. Spring Native 0.12 (quote-service, quote-function) can't read
 # Java 21 class files during AOT processing, so it builds on 17. Interim until every project is
 # on the same JDK and builds can use a preset JAVA_HOME.
 JDKS=$HOME/.sdkman/candidates/java
-declare -A JDK=([quote-service]=$JDKS/17.0.20-tem [quote-function]=$JDKS/17.0.20-tem)
-DEFAULT_JDK=$JDKS/21.0.12+1.1-tem
+JDK_17=${SMOKE_JDK_17:-$JDKS/17.0.20-tem}
+declare -A JDK=([quote-service]=$JDK_17 [quote-function]=$JDK_17)
+DEFAULT_JDK=${SMOKE_JDK_21:-$JDKS/21.0.12+1.1-tem}
 has() { [[ " ${SERVICES[*]} " == *" $1 "* ]]; }
 needs_keycloak() { has catalog-service; }
 needs_rabbit() { has order-service || has dispatcher-service; }
@@ -79,7 +92,7 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "Not inside a git wo
 PB=$ROOT/PolarBookshop
 COMPOSE=$PB/polar-deployment/docker/docker-compose.yml
 [[ -f $COMPOSE ]] || { echo "Compose file not found: $COMPOSE" >&2; exit 2; }
-SOCK=/run/user/$(id -u)/podman/podman.sock
+SOCK=   # Podman's API socket; set by podman_socket
 NET=docker_default   # network podman-compose creates for project "docker"
 declare -A READY_URL=(
   [catalog-service]=http://localhost:9001/actuator/health/readiness
@@ -120,10 +133,20 @@ K8S_MEMORY_REQUEST=256Mi
 declare -A BASE_URL=([catalog-service]=$CATALOG [order-service]=$ORDER [dispatcher-service]=$DISPATCHER
                      [config-service]=$CONFIG [edge-service]=$EDGE)
 WORK=$(mktemp -d)
-PIDS=()   # background kubectl port-forwards
-trap 'kill "${PIDS[@]}" 2>/dev/null; rm -rf "$WORK"' EXIT
+PIDS=()   # background kubectl port-forwards and Podman API service
+# Kills a process and its descendants: kubectl runs under MicroK8s' wrapper scripts, which
+# would keep running without their parent.
+kill_tree() { local c; for c in $(pgrep -P "$1"); do kill_tree "$c"; done; kill "$1" 2>/dev/null; }
+on_exit() {
+  local status=$? pid
+  for pid in "${PIDS[@]}"; do kill_tree "$pid"; done
+  [[ -n ${SMOKE_JUNIT:-} && ( $CMD == test || $CMD == all ) ]] && write_junit "$status"
+  rm -rf "$WORK"
+}
+trap on_exit EXIT
 
-log() { printf '\n== %s\n' "$*"; }
+SECTION=   # the last log heading; the class name of the checks under it in SMOKE_JUNIT
+log() { SECTION=$*; printf '\n== %s\n' "$*"; }
 
 wait_until() { # timeout-seconds description command...
   local t=$1 what=$2 i=0; shift 2
@@ -135,7 +158,32 @@ wait_until() { # timeout-seconds description command...
   echo " ok"
 }
 
+# bootBuildImage talks to Podman's Docker-compatible API socket. On the development server,
+# systemd starts it on demand. Without a systemd user session, as on CI runners, Podman serves
+# it itself for as long as the script runs.
+podman_socket() {
+  log "Podman API socket"
+  SOCK=$(podman info --format '{{.Host.RemoteSocket.Path}}') || exit 1
+  SOCK=${SOCK#unix://}
+  api_up() { curl -sf --unix-socket "$SOCK" http://d/_ping >/dev/null 2>&1; }
+  if api_up || { systemctl --user start podman.socket 2>/dev/null && api_up; }; then
+    echo "Podman API socket active ($SOCK)"
+    return
+  fi
+  mkdir -p "$(dirname "$SOCK")"
+  podman system service --time=0 "unix://$SOCK" >"$WORK/podman-service.log" 2>&1 &
+  local pid=$!
+  PIDS+=("$pid")
+  # Stops waiting when the service has exited, such as when it can't create the socket.
+  up_or_exited() { api_up || ! kill -0 "$pid" 2>/dev/null; }
+  wait_until 30 "podman system service ($SOCK)" up_or_exited && api_up && return
+  echo "No Podman API socket. podman system service:" >&2
+  cat "$WORK/podman-service.log" >&2
+  exit 1
+}
+
 build_image() { # service
+  [[ -n $SOCK ]] || podman_socket
   log "Building $1 image (bootBuildImage via Podman)"
   # afterEvaluate, so the environment override lands after build.gradle sets it.
   cat > "$WORK/podman.init.gradle" <<EOF
@@ -159,7 +207,8 @@ EOF
     props+=(-PsmokeTestJvmImage)
   fi
   local jdk=${JDK[$1]:-$DEFAULT_JDK}
-  [[ -x $jdk/bin/java ]] || { echo "JDK not found: $jdk (install it with sdkman)" >&2; exit 1; }
+  [[ -x $jdk/bin/java ]] \
+    || { echo "JDK not found: $jdk (install it with sdkman, or set SMOKE_JDK_17/SMOKE_JDK_21)" >&2; exit 1; }
   echo "Using JDK $(basename "$jdk")"
   JAVA_HOME=$jdk "$PB/$1/gradlew" --no-daemon -q -p "$PB/$1" -I "$WORK/podman.init.gradle" "${props[@]}" bootBuildImage \
     > "$WORK/build.log" 2>&1 || { tail -40 "$WORK/build.log"; echo "$1 image build FAILED" >&2; exit 1; }
@@ -217,9 +266,6 @@ check_memory() {
 }
 
 build_images() {
-  log "Podman API socket"
-  systemctl --user start podman.socket && echo "podman.socket active ($SOCK)"
-
   local s
   for s in "${SERVICES[@]}"; do
     [[ -d $PB/$s ]] || continue   # prebuilt image (polar-ui); podman run pulls it
@@ -460,12 +506,55 @@ test_k8s() {
 
 # ---- test helpers -----------------------------------------------------------
 PASS=0; FAIL=0
+TESTS_DONE=0
 check() { # description expected actual [detail]
+  local failure=
   if [[ $2 == "$3" ]]; then
     printf '  PASS  %-40s %s\n' "$1" "$3"; (( PASS++ ))
   else
     printf '  FAIL  %-40s expected %s, got %s %s\n' "$1" "$2" "$3" "${4:-}"; (( FAIL++ ))
+    failure="expected $2, got $3${4:+ $4}"
   fi
+  # For SMOKE_JUNIT: the section without its URL, the description and the failure, if any.
+  printf '%s\0' "${SECTION%% (*}" "$1" "$failure" >> "$WORK/checks"
+}
+
+# Writes the recorded checks to SMOKE_JUNIT as JUnit XML, one test case per check. A run that
+# stopped before its tests finished, such as one whose `up` failed, also gets an error case
+# named after the section it stopped in.
+write_junit() { # exit-status
+  local stopped=
+  (( $1 != 0 && ! TESTS_DONE )) && stopped=${SECTION:-start}
+  mkdir -p "$(dirname "$SMOKE_JUNIT")"
+  python3 -I - "$WORK/checks" "$SMOKE_JUNIT" "smoke-test$( (( K8S )) && echo -k8s)" "$stopped" "$1" <<'EOF'
+import sys
+import xml.etree.ElementTree as ET
+checks, out, suite_name, stopped, status = sys.argv[1:]
+try:
+    with open(checks, encoding="utf-8", errors="replace") as f:
+        # XML 1.0 has no other control characters; a response body could contain them.
+        text = "".join(c for c in f.read() if c >= " " or c in "\0\t\n\r")
+    fields = text.split("\0")[:-1]
+except FileNotFoundError:
+    fields = []
+suite = ET.Element("testsuite", name=suite_name)
+failures = errors = 0
+for i in range(0, len(fields), 3):
+    section, name, failure = fields[i:i + 3]
+    case = ET.SubElement(suite, "testcase", classname=section, name=name)
+    if failure:
+        ET.SubElement(case, "failure", message=failure).text = failure
+        failures += 1
+if stopped:
+    case = ET.SubElement(suite, "testcase", classname=suite_name, name=f"stopped during: {stopped}")
+    message = f"The script exited with status {status} before its tests finished"
+    ET.SubElement(case, "error", message=message).text = message
+    errors += 1
+for key, value in (("tests", len(suite)), ("failures", failures), ("errors", errors), ("skipped", 0)):
+    suite.set(key, str(value))
+ET.ElementTree(suite).write(out, encoding="UTF-8", xml_declaration=True)
+EOF
+  echo "JUnit results written to $SMOKE_JUNIT"
 }
 # req METHOD URL [TOKEN] [JSON] -> sets $CODE and $BODY
 req() {
@@ -977,6 +1066,7 @@ run_tests() {
   test_metrics
   needs_observability && test_observability
 
+  TESTS_DONE=1
   log "Result: $PASS passed, $FAIL failed"
   (( FAIL == 0 ))
 }
@@ -990,13 +1080,52 @@ down() {
   podman ps --format '{{.Names}} {{.Status}}'
 }
 
+# ---- diagnostics (logs) -----------------------------------------------------
+logs() {
+  local dir=$LOGS_DIR c names
+  mkdir -p "$dir" || exit 1
+  log "Writing the stack's state and logs to $dir"
+  free -m > "$dir/memory.txt"
+  podman stats --no-stream >> "$dir/memory.txt" 2>&1
+  podman ps -a > "$dir/containers.txt" 2>&1
+  # The app containers and those of the compose project.
+  mapfile -t names < <(podman ps -a --format '{{.Names}}' --filter label=io.podman.compose.project=docker)
+  for c in "${names[@]}" "${ALL_APPS[@]}"; do
+    podman container exists "$c" || continue
+    podman inspect --format '{{.Name}}: {{.State.Status}}, exit code {{.State.ExitCode}}, OOM killed {{.State.OOMKilled}}' \
+      "$c" >> "$dir/state.txt"
+    podman logs "$c" > "$dir/$c.log" 2>&1
+  done
+  ls "$dir"
+}
+
+k8s_logs() {
+  local dir=$LOGS_DIR d
+  mkdir -p "$dir" || exit 1
+  log "Writing the state and logs of namespace $NS to $dir"
+  free -m > "$dir/memory.txt"
+  k get all -o wide > "$dir/resources.txt" 2>&1
+  k get events --sort-by=.lastTimestamp > "$dir/events.txt" 2>&1
+  k describe pods > "$dir/pods.txt" 2>&1
+  for d in $(k get deployments -o name 2>/dev/null); do
+    d=${d##*/}
+    k logs "deployment/$d" --all-containers > "$dir/$d.log" 2>&1
+    # The log before the last restart, such as one by a failing liveness probe.
+    k logs "deployment/$d" --all-containers --previous > "$dir/$d.previous.log" 2>/dev/null \
+      || rm -f "$dir/$d.previous.log"
+  done
+  ls "$dir"
+}
+
 if (( K8S )); then
   up() { k8s_up; }
   down() { k8s_down; }
+  logs() { k8s_logs; }
 fi
 case $CMD in
   up)   up ;;
   test) run_tests ;;
   down) down ;;
   all)  up && run_tests ;;
+  logs) logs ;;
 esac

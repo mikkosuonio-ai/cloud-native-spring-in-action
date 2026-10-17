@@ -143,14 +143,23 @@ Changes in `development/script/smoke-test.sh`:
   `JAVA_HOME_21_X64`.
 - **Podman socket.** Ask Podman for the socket path
   (`podman info --format '{{.Host.RemoteSocket.Path}}'`) instead of hard-coding
-  `/run/user/<uid>/podman/podman.sock`. If `systemctl --user` doesn't work (the runner may have no
-  user session), start `podman system service --time=0` in the background instead.
-- **Diagnostics.** Add a `logs <dir>` command. It writes `podman ps -a` and each container's log
-  to the directory, or with `--k8s` the pods, the namespace's events and each deployment's log.
-  CI uploads the directory when a run fails, and it's useful locally too.
-- **JUnit output.** When `SMOKE_JUNIT=<file>` is set, `check` also records each check, and
-  `run_tests` writes them as JUnit XML at the end. The step 1 summary then covers the smoke tests
-  too.
+  `/run/user/<uid>/podman/podman.sock`, and set it up only when an image is built. If the API
+  doesn't answer and `systemctl --user start podman.socket` doesn't help (the runner may have no
+  user session), start `podman system service --time=0` on that path in the background for the
+  length of the run. The systemd unit runs the same command, so bootBuildImage gets the same API.
+- **Diagnostics.** Add a `logs <dir>` command. It writes `podman ps -a`, `free` and
+  `podman stats`, each smoke container's state (exit code, OOM kill) and log to the directory.
+  With `--k8s` it writes the namespace's resources, events and pod descriptions, and each
+  deployment's log, including the log before a restart. CI uploads the directory when a run
+  fails, and it's useful locally too.
+- **JUnit output.** When `SMOKE_JUNIT=<file>` is set, `check` also records each check, with the
+  section heading as the class name, and the script writes them as JUnit XML when it exits. A
+  run that stops before its tests finish, such as one whose `up` fails, gets an error case named
+  after the section it stopped in. The step 1 summary then covers the smoke tests too.
+- On exit, kill the background processes together with their children. The Keycloak
+  port-forward runs under MicroK8s' wrapper scripts, and killing only the subshell left kubectl
+  running and holding port 38080 after every `--k8s` test run.
+- A call without a command prints the usage instead of running `all` (done before this step).
 - Update `SKILL.md` for the new variables and the `logs` command.
 
 **Done when:** `all`, `all edge` and `all catalog --k8s` give the same results as before on the
