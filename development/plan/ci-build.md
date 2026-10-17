@@ -82,7 +82,11 @@ Changes:
 - Add a `reports` job (`needs` both build jobs, `if: ${{ !cancelled() }}`) that downloads the
   `reports-*` artifacts with `actions/download-artifact@v8` and writes the table to
   `$GITHUB_STEP_SUMMARY`, one row per project. A project without test results, such as one that
-  failed to compile, still gets a row, and failed tests are listed by name.
+  failed to compile, still gets a row, and failed tests are listed by name. Each row links to
+  its artifact: the job lists the run's artifacts with `gh api` (`actions: read` permission),
+  and the link downloads the artifact as a zip. GitHub shows only single-file artifacts uploaded
+  with `archive: false` in the browser, and the HTML reports are directories with CSS and
+  JavaScript.
 
 Optional: annotations for failing tests with a JUnit report action such as
 `mikepenz/action-junit-report`. It needs the `checks: write` permission.

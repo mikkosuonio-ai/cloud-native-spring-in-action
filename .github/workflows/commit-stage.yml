@@ -120,6 +120,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      actions: read # lists the run's artifacts for the links in the summary
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -128,8 +129,17 @@ jobs:
         with:
           pattern: reports-*
           path: reports
+      # Without the list, the summary has no links.
+      - name: List report artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name | startswith("reports-")) | "\(.name)\t\(.id)"' \
+            > artifacts.tsv \
+            || echo "::warning::Could not list the artifacts, so the summary has no links."
       - name: Summarize reports
-        run: python3 .github/scripts/report-summary.py reports >> "$GITHUB_STEP_SUMMARY"
+        run: python3 .github/scripts/report-summary.py reports artifacts.tsv >> "$GITHUB_STEP_SUMMARY"
 
   native-build:
     name: Native Build and Test ${{ matrix.project }}
