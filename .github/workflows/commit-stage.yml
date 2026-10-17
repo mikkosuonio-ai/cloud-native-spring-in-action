@@ -3,6 +3,13 @@ on:
   push:
   schedule: # Every Monday
     - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+# The smoke tests make a run long, and a newer push to the same branch makes an older run
+# pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-java-21:
@@ -150,9 +157,75 @@ jobs:
           validate "$dir" || status=1
           exit "$status"
 
+  # Builds the images of catalog, order, dispatcher and config from this commit and smoke tests
+  # them together with their backing services, as on the development server.
+  smoke-podman:
+    name: Smoke test on Podman
+    needs: [build-java-21, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Set up JDKs
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+          cache: gradle
+          # Its own cache key: the image builds need other dependencies than the build jobs.
+          cache-dependency-path: |
+            PolarBookshop/*/build.gradle
+            PolarBookshop/*/gradle/wrapper/gradle-wrapper.properties
+      - name: Install podman-compose
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q podman-compose python3-yaml
+      - name: Show Podman and runner resources
+        run: |
+          podman version
+          podman-compose version
+          free -h
+          df -h /
+      - name: Smoke test
+        shell: bash # runs with -o pipefail, so the script's status survives tee
+        env:
+          SMOKE_JDK_17: ${{ env.JAVA_HOME_17_X64 }}
+          SMOKE_JDK_21: ${{ env.JAVA_HOME_21_X64 }}
+          SMOKE_JUNIT: ${{ github.workspace }}/smoke/test-results/test/TEST-smoke-podman.xml
+        run: |
+          mkdir -p smoke
+          bash development/script/smoke-test.sh all --rebuild 2>&1 | tee smoke/output.txt
+      # These also run when the job times out, which cancels it: a hung stack needs the logs most.
+      - name: Collect the containers' state and logs
+        if: ${{ !success() }}
+        run: bash development/script/smoke-test.sh logs smoke/logs
+      - name: Show disk use
+        if: ${{ always() }}
+        run: |
+          df -h /
+          podman system df
+      # The reports job summarizes reports-* artifacts; project.txt names the row.
+      - name: Prepare smoke test reports
+        if: ${{ always() }}
+        run: |
+          mkdir -p smoke
+          echo "Smoke test on Podman" > smoke/project.txt
+      - name: Upload smoke test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports-smoke-podman
+          path: smoke/
+          retention-days: 14
+
   reports:
     name: Test and coverage reports
-    needs: [build-java-21, build]
+    needs: [build-java-21, build, smoke-podman]
     # Also after failed builds: the summary shows what failed.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04

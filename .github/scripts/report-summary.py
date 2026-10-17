@@ -95,9 +95,10 @@ def main(reports_dir, artifacts=None):
         print("\n### Failed tests\n")
         for project, name in failures:
             print(f"- {project}: `{name}`")
-    print("\nThe reports are zips of the `reports-*` artifacts, with the HTML test report in"
-          " `reports/tests/test/index.html` and the coverage report in"
-          " `reports/jacoco/test/html/index.html`.")
+    print("\nThe reports are zips of the `reports-*` artifacts. A Gradle build's zip has the HTML"
+          " test report in `reports/tests/test/index.html` and the coverage report in"
+          " `reports/jacoco/test/html/index.html`. A smoke test's zip has the script's output in"
+          " `output.txt` and, after a failure, the containers' state and logs in `logs/`.")
 
 
 if __name__ == "__main__":

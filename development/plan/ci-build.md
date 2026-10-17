@@ -174,11 +174,19 @@ Changes:
 - Add a `smoke-podman` job on `ubuntu-24.04` with `needs: [build-java-21, build]`. Give it
   `timeout-minutes` (for example 45), so a hung stack doesn't run for the default six hours.
 - Setup: `actions/setup-java` with both 17 and 21 and the Gradle cache, and
-  `sudo apt-get install -y podman-compose python3-yaml`.
-- Run `bash development/script/smoke-test.sh all --rebuild` with `SMOKE_JDK_*` and `SMOKE_JUNIT`
-  set, saving the output.
-- Always upload the output and the JUnit file. On failure, also run `smoke-test.sh logs` and
-  upload the directory. Add the smoke results to the `reports` summary.
+  `sudo apt-get install -y podman-compose python3-yaml`. The cache gets its own key
+  (`cache-dependency-path` over the `PolarBookshop/*` build files), because the image builds need
+  other dependencies than the build jobs, which all share the default key.
+- Run `bash development/script/smoke-test.sh all --rebuild` with `SMOKE_JDK_*` (from setup-java's
+  `JAVA_HOME_17_X64` and `JAVA_HOME_21_X64`) and `SMOKE_JUNIT` set, saving the output with `tee`
+  under `shell: bash`, whose `pipefail` keeps the script's exit status.
+- Always upload one `reports-smoke-podman` artifact with the output, the JUnit file and a
+  `project.txt`. On failure, also run `smoke-test.sh logs` into it. These steps use `always()`
+  and `!success()`, because a timeout cancels the job, and a hung stack needs the logs most. The `reports` job also
+  `needs` this job, so the summary gets a smoke test row, and its Reports link downloads the
+  output and logs.
+- Print `df -h` and `free -h` before the run, and `df -h` and `podman system df` after it, for
+  the risks below.
 - Give the workflow a `concurrency` group per branch with `cancel-in-progress: true`: runs now
   take much longer, and a newer push makes the older run pointless. Also add the
   `workflow_dispatch` trigger, so a run can be started by hand.
