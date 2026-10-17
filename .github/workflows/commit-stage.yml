@@ -112,6 +112,44 @@ jobs:
             ${{ matrix.project }}/build/reports/jacoco/test/
           retention-days: 14
 
+  k8s-manifests:
+    name: Validate Kubernetes manifests
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      KUBECONFORM_VERSION: v0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+      # The Kubernetes release of MicroK8s 1.35/stable, which the smoke tests deploy to.
+      KUBERNETES_VERSION: 1.35.0
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Install kubeconform
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/kubeconform.tar.gz" \
+            "https://github.com/yannh/kubeconform/releases/download/$KUBECONFORM_VERSION/kubeconform-linux-amd64.tar.gz"
+          echo "$KUBECONFORM_SHA256  $RUNNER_TEMP/kubeconform.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/kubeconform.tar.gz" -C "$RUNNER_TEMP" kubeconform
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      # Renders the services' kustomizations with the kubectl of the runner image, and checks the
+      # backing services the smoke tests deploy. The staging and production overlays in
+      # polar-deployment/kubernetes/applications/ are left out: their base is the book's upstream
+      # repository on GitHub, not this one.
+      - name: Validate manifests
+        shell: bash # runs with -o pipefail, so a kustomize error fails its pipeline
+        run: |
+          validate() { kubeconform -strict -summary -kubernetes-version "$KUBERNETES_VERSION" "$@"; }
+          status=0
+          for dir in PolarBookshop/*/k8s; do
+            echo "== $dir"
+            kubectl kustomize "$dir" | validate - || status=1
+          done
+          dir=PolarBookshop/polar-deployment/kubernetes/platform/development/services
+          echo "== $dir"
+          validate "$dir" || status=1
+          exit "$status"
+
   reports:
     name: Test and coverage reports
     needs: [build-java-21, build]

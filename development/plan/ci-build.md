@@ -101,10 +101,16 @@ report in the artifact.
 
 Changes:
 - Add a `k8s-manifests` job without Java. It renders each `PolarBookshop/<service>/k8s` with
-  `kubectl kustomize` (preinstalled on the runner), plus the backing services in
-  `polar-deployment/kubernetes/platform/development/services/`, and pipes them through
-  `kubeconform -strict -summary`. Pin kubeconform's version, and pass a `-kubernetes-version`
-  matching the MicroK8s channel of step 8.
+  `kubectl kustomize` (preinstalled on the runner) and pipes it through
+  `kubeconform -strict -summary`, and validates the files of the backing services in
+  `polar-deployment/kubernetes/platform/development/services/` directly. All of them use only
+  built-in kinds, so no CRD schemas are needed.
+- Install kubeconform from its release tarball, pinned to a version (v0.8.0) and its SHA-256.
+  Validate against `-kubernetes-version 1.35.0`, the release of the MicroK8s channel of step 8.
+  kubeconform downloads the schemas from the `yannh/kubernetes-json-schema` repository.
+- Run the step with `shell: bash`, which adds `-o pipefail`: when kustomize fails, kubeconform
+  finds no resources and exits 0. The step checks every directory and fails at the end, so one
+  run reports all broken manifests.
 - Leave out the staging and production overlays in `polar-deployment/kubernetes/applications/`.
   Their base is `github.com/polarbookshop/<service>/k8s?ref=main`, the book's upstream
   repositories, so they would validate those instead of this repository (see Future work).
