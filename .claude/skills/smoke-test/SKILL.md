@@ -20,6 +20,7 @@ bash development/script/smoke-test.sh all order dispatcher observability  # + Pr
 bash development/script/smoke-test.sh all --rebuild    # rebuild the selected images from this worktree's code first
 bash development/script/smoke-test.sh test             # rerun the tests against a running stack
 bash development/script/smoke-test.sh down             # remove all the containers
+bash development/script/smoke-test.sh help             # usage; a call without a command prints it too
 bash development/script/smoke-test.sh all catalog --k8s  # on MicroK8s instead, see "Kubernetes"
 ```
 

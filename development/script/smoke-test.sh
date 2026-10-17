@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Smoke test for PolarBookshop services running under Podman, or on MicroK8s with --k8s.
 #
-# Usage: smoke-test.sh [up|test|down|all] [catalog] [order] [dispatcher] [config] [edge] [quote]
+# Usage: smoke-test.sh up|test|down|all [catalog] [order] [dispatcher] [config] [edge] [quote]
 #                      [quote-function] [observability] [--rebuild] [--k8s]
 #   up      build missing images (or all selected with --rebuild), start backing services + apps
 #   test    run the HTTP smoke tests against the running stack
 #   down    remove the app containers and the compose backing services (--k8s: the namespace)
-#   all     up + test (default); leaves the stack running
+#   all     up + test; leaves the stack running
+#   help    print this text, as does a call without a command
 #
 # Services default to "catalog order dispatcher config"; edge, quote and quote-function must
 # be asked for, since the whole set doesn't fit in this machine's memory. order needs catalog,
@@ -17,19 +18,23 @@
 # Run from anywhere inside a worktree of the repository.
 set -uo pipefail
 
-CMD=all
+usage() { sed -n '2,18p' "$0"; }
+CMD=
 REBUILD=0
 K8S=0
 SELECTED=()
 for a in "$@"; do
   case $a in
     up|test|down|all)        CMD=$a ;;
+    help|-h|--help)          usage; exit 0 ;;
     --rebuild)               REBUILD=1 ;;
     --k8s)                   K8S=1 ;;
     catalog|order|dispatcher|config|edge|quote|quote-function|observability) SELECTED+=("$a") ;;
-    *) sed -n '2,17p' "$0"; exit 2 ;;
+    *) usage; exit 2 ;;
   esac
 done
+# No default command: a bare call would otherwise start the whole default stack.
+[[ -n $CMD ]] || { usage; exit 2; }
 [[ " ${SELECTED[*]} " == *[a-z]* && " ${SELECTED[*]} " != " observability " ]] \
   || SELECTED+=(catalog order dispatcher config)
 selected() { [[ " ${SELECTED[*]} " == *" $1 "* ]]; }
