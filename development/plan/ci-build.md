@@ -252,6 +252,20 @@ the whole system together, including edge-service with observability.
 Risk: the observability selection has the most images: two builders, the backing services and
 the observability stack. Check its disk use in the first run.
 
+Results of the first run (2026-10-18): all four selections were green, and every test section
+ran.
+
+| Selection | Checks | Job | Free disk after |
+|---|--:|--:|--:|
+| default | 80 | 6m39s | 4.5 GB |
+| `edge` | 87 | 6m04s | 4.7 GB |
+| `quote quote-function` | 39 | 3m00s | 11 GB |
+| `order dispatcher observability` | 80, of them 21 for observability | 7m05s | 3.5 GB |
+
+The edge count is the same as on the development server. Each runner had about 6.8 GiB of memory
+available at the start. The whole run took 9m44s, as long as the previous run with the default
+set only (9m35s).
+
 ## Step 7: Fix the slow-start restarts on Kubernetes
 
 **Goal:** a cold start of all the services on Kubernetes passes the smoke test's no-restarts
