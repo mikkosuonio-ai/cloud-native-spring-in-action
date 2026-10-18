@@ -35,6 +35,12 @@ spec:
               value: http://order-service
             - name: SPA_URL
               value: http://polar-ui
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 9000
+            periodSeconds: 5
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness

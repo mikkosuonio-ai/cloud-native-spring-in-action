@@ -228,11 +228,10 @@ With the idle cluster, about 2.1 GiB is available.
 - dispatcher, config or catalog (with PostgreSQL and Keycloak) alone each start cleanly.
 - `order dispatcher` and the default set fit when added to a running namespace one step at a time
   (catalog, then order, then dispatcher, then config); the default set leaves ~0.65 GiB.
-- A cold start of the default set also passes its HTTP checks, but the four JVMs and Keycloak
-  starting together on 2 CPUs take longer than the liveness probes allow, so every app container
-  is restarted 3-4 times and the restart checks fail. See `PolarBookshop/findings.md`.
-
-On a bigger machine, a cold `all --k8s` is the run to aim for.
+- A cold `all --k8s` passes too, with no restarts. The four JVMs and Keycloak starting together
+  on 2 CPUs take 36-43 seconds. That's longer than the liveness probes allow, but the apps'
+  startup probes give them up to 150 seconds (see `PolarBookshop/findings.md`). Starting with
+  ~2.2 GiB available, it left at least ~0.75 GiB.
 
 ### What it does
 

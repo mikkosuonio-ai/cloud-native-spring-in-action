@@ -271,19 +271,24 @@ set only (9m35s).
 **Goal:** a cold start of all the services on Kubernetes passes the smoke test's no-restarts
 check.
 
-This is the open finding in `PolarBookshop/findings.md`: when the apps start together with
+This was the open finding in `PolarBookshop/findings.md`: when the apps start together with
 Keycloak, the liveness probe kills them before they're up, and each one is restarted 3-4 times.
 In CI every deployment is a cold start, so without this fix the Kubernetes job would fail or be
 flaky.
 
 Changes:
 - Add a `startupProbe` on `/actuator/health/liveness` to each `k8s/deployment.yml` (catalog,
-  order, dispatcher, config and edge), with room for a slow start (for example
-  `periodSeconds: 5`, `failureThreshold: 30`), as `polar-keycloak` already has.
+  order, dispatcher, config and edge), with `periodSeconds: 5` and `failureThreshold: 30`, as
+  `polar-keycloak` already has. A start may then take up to 150 seconds.
 - Check it with a cold `smoke-test.sh all --k8s` on the development server, and move the finding
   to Resolved.
 
 **Done when:** a cold `all --k8s` passes with no restarts on the development server.
+
+Result (2026-10-18): a cold `all --k8s` passed 93 checks with no restarts. The apps took 36-43
+seconds to start, longer than the 25 seconds the liveness probe allowed before, and their
+startup probes failed until they were up. The run used the existing local images, because only
+the manifests changed. It left at least 0.75 GiB of the development server's memory free.
 
 ## Step 8: Smoke test on MicroK8s
 

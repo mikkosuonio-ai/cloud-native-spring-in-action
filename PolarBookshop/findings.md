@@ -5,26 +5,31 @@ Issues found while running the smoke tests (`development/script/smoke-test.sh`, 
 
 ## Open
 
-### Kubernetes restarts the apps when they start slowly
-
-Found 2026-10-12 with `smoke-test.sh all --k8s` on MicroK8s.
-
-**Symptom:** when catalog, order, dispatcher and config start at the same time as Keycloak on a
-2-CPU node, each app container is restarted 3-4 times ("failed liveness probe, will be
-restarted", exit code 143) before it stays up. Started one at a time they don't restart, and
-catalog-service then starts in about 18 seconds.
-
-**Cause:** the `k8s/deployment.yml` of each app has a liveness probe with
-`initialDelaySeconds: 10` and `periodSeconds: 5`, and no startup probe. With the default failure
-threshold of 3, a container whose actuator isn't answering after about 25 seconds is killed, and
-the restart starts the slow JVM startup over. The readiness probe alone would have been enough to
-keep traffic away during startup.
-
-**Possible fix:** add a `startupProbe` on `/actuator/health/liveness` with room for a slow start
-(for example `periodSeconds: 5`, `failureThreshold: 30`), as `polar-keycloak` already has, so the
-liveness probe only starts once the app is up.
+None.
 
 ## Resolved
+
+### Kubernetes restarted the apps when they started slowly
+
+Found 2026-10-12 with `smoke-test.sh all --k8s` on MicroK8s, fixed 2026-10-18.
+
+**Symptom:** when catalog, order, dispatcher and config started at the same time as Keycloak on a
+2-CPU node, each app container was restarted 3-4 times ("failed liveness probe, will be
+restarted", exit code 143) before it stayed up. Started one at a time they didn't restart, and
+catalog-service then started in about 18 seconds.
+
+**Cause:** the `k8s/deployment.yml` of each app had a liveness probe with
+`initialDelaySeconds: 10` and `periodSeconds: 5`, and no startup probe. With the default failure
+threshold of 3, a container whose actuator wasn't answering after about 25 seconds was killed,
+and the restart started the slow JVM startup over. The readiness probe alone would have been
+enough to keep traffic away during startup.
+
+**Fix:** the `k8s/deployment.yml` of catalog, order, dispatcher, config and edge has a
+`startupProbe` on `/actuator/health/liveness` with `periodSeconds: 5` and `failureThreshold: 30`,
+as `polar-keycloak` has. The liveness probe starts only once the app is up, and a start may take
+up to 150 seconds. A cold `smoke-test.sh all --k8s` then passed 93 checks with no restarts. The
+apps took 36-43 seconds to start, longer than the old liveness probe allowed, and their startup
+probes failed until they were up.
 
 ### RabbitMQ management was off in the Kubernetes development setup
 

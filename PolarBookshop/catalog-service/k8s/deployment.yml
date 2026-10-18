@@ -33,6 +33,12 @@ spec:
               value: "50"
             - name: SPRING_PROFILES_ACTIVE
               value: testdata
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 9001
+            periodSeconds: 5
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
