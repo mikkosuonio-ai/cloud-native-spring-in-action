@@ -157,15 +157,27 @@ jobs:
           validate "$dir" || status=1
           exit "$status"
 
-  # Builds the images of catalog, order, dispatcher and config from this commit and smoke tests
-  # them together with their backing services, as on the development server.
+  # Builds the images of the selected services from this commit and smoke tests them together
+  # with their backing services, as on the development server. Each selection runs on its own
+  # runner: together their images would fill a runner's disk, and each selection gets its own
+  # row, output and logs in the summary.
   smoke-podman:
-    name: Smoke test on Podman
+    name: Smoke test on Podman (${{ matrix.services }})
     needs: [build-java-21, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # The script's service selections. It adds catalog and order for edge, and catalog for
+        # order.
+        services:
+          - catalog order dispatcher config
+          - edge
+          - quote quote-function
+          - order dispatcher observability
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -194,12 +206,14 @@ jobs:
       - name: Smoke test
         shell: bash # runs with -o pipefail, so the script's status survives tee
         env:
+          SERVICES: ${{ matrix.services }}
           SMOKE_JDK_17: ${{ env.JAVA_HOME_17_X64 }}
           SMOKE_JDK_21: ${{ env.JAVA_HOME_21_X64 }}
           SMOKE_JUNIT: ${{ github.workspace }}/smoke/test-results/test/TEST-smoke-podman.xml
         run: |
+          read -ra services <<< "$SERVICES"
           mkdir -p smoke
-          bash development/script/smoke-test.sh all --rebuild 2>&1 | tee smoke/output.txt
+          bash development/script/smoke-test.sh all "${services[@]}" --rebuild 2>&1 | tee smoke/output.txt
       # These also run when the job times out, which cancels it: a hung stack needs the logs most.
       - name: Collect the containers' state and logs
         if: ${{ !success() }}
@@ -211,15 +225,19 @@ jobs:
           podman system df
       # The reports job summarizes reports-* artifacts; project.txt names the row.
       - name: Prepare smoke test reports
+        id: reports
         if: ${{ always() }}
+        env:
+          SERVICES: ${{ matrix.services }}
         run: |
           mkdir -p smoke
-          echo "Smoke test on Podman" > smoke/project.txt
+          echo "Smoke test on Podman: $SERVICES" > smoke/project.txt
+          echo "artifact=reports-smoke-podman-${SERVICES// /-}" >> "$GITHUB_OUTPUT"
       - name: Upload smoke test reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: reports-smoke-podman
+          name: ${{ steps.reports.outputs.artifact }}
           path: smoke/
           retention-days: 14
 

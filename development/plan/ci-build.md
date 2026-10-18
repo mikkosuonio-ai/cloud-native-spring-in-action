@@ -227,20 +227,30 @@ Results of the first runs (2026-10-18, a private repository):
 are tested too.
 
 Changes:
-- In the same job, run the selections that already pass on the development server one after
-  another, with `down` in between: the default set (step 5), `edge`, `quote quote-function`, and
-  `order dispatcher observability`. Each later run reuses the images built earlier in the job and
-  builds only the missing ones, so every image is still built from the pushed commit.
-- Collect the JUnit files of all the runs.
-- Free disk space before the first run. Step 5 leaves only 4.5 GB free, and this step adds three
-  images and the observability stack. Remove unused preinstalled tooling, or remove the builders
-  and the buildpacks' cache volumes once the last image is built.
+- Make `smoke-podman` a matrix over the selections that already pass on the development server:
+  the default set (step 5), `edge`, `quote quote-function`, and
+  `order dispatcher observability`. Each runs `smoke-test.sh all <selection> --rebuild` on its
+  own runner, with `fail-fast: false`.
+- Each matrix job uploads its own `reports-smoke-podman-<selection>` artifact, so the summary gets
+  a row per selection, and a failure's output and logs belong to that selection alone.
+
+The first idea was to run the selections one after another in the same job, with `down` in
+between, so that the later selections reuse the images built earlier. The step 5 run showed that
+the disk can't take it: the default set leaves 4.5 GB free, and the other selections add
+builder-jammy-tiny (1.1 GB), three app images with their buildpack caches, and the observability
+stack (1.4 GB). Freeing space by removing preinstalled tooling, or the builders between
+selections, would add steps and time. The matrix needs no cleanup and keeps a run's wall time
+at about that of one selection. It builds catalog, order and dispatcher more than once, which
+step 9 removes.
 
 Running everything at once would fit in the runner's memory too, but that has never been run,
-even locally. Try it once the separate runs are stable: it would shorten the job and test the
-whole system together, including edge-service with observability.
+even locally. Once the separate runs are stable, try it as a fifth matrix entry: it would test
+the whole system together, including edge-service with observability.
 
 **Done when:** all four selections pass in CI.
+
+Risk: the observability selection has the most images: two builders, the backing services and
+the observability stack. Check its disk use in the first run.
 
 ## Step 7: Fix the slow-start restarts on Kubernetes
 
