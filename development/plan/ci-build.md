@@ -204,6 +204,23 @@ Risks to check in the first runs:
 - the job's duration, mostly image builds and builder pulls. Record it, so that steps 6, 8 and 9
   can be compared against it.
 
+Results of the first runs (2026-10-18, a private repository):
+- The job was green with 80 checks on the branch push. A throwaway branch that expected 418 for
+  an unknown ISBN failed the job with 79 passed and 1 failed. The summary named the failed check,
+  and the artifact had the containers' state and logs.
+- Rootless Podman worked without changes. The runner's systemd user socket served the API, so
+  the script didn't need its fallback, and the checks through `host.docker.internal` passed.
+- Memory: the runner had 7.8 GiB with 6.7 GiB available, and 4.4 GiB was still available with the
+  stack running. It also has 3 GiB of swap.
+- Disk: 13 GB was free before the smoke test and 4.5 GB after it. The images took 6.4 GB, of
+  which the builders and other unused images were 3.7 GB, and the buildpacks' cache volumes took
+  1.5 GB.
+- Duration: the job took 7m54s, and the whole run 12m24s, with 4 minutes of Gradle builds before
+  it. The four image builds took 5 minutes, starting the stack 2 minutes, and the checks 11
+  seconds. Config-service, built first, took longest (2m11s), because it pulls the builder. With
+  the Gradle cache restored, the job took 7m06s.
+- No pull hit Docker Hub's limits.
+
 ## Step 6: Smoke test the rest of the system on Podman
 
 **Goal:** edge-service with polar-ui, quote-service, quote-function and the observability stack
@@ -215,6 +232,9 @@ Changes:
   `order dispatcher observability`. Each later run reuses the images built earlier in the job and
   builds only the missing ones, so every image is still built from the pushed commit.
 - Collect the JUnit files of all the runs.
+- Free disk space before the first run. Step 5 leaves only 4.5 GB free, and this step adds three
+  images and the observability stack. Remove unused preinstalled tooling, or remove the builders
+  and the buildpacks' cache volumes once the last image is built.
 
 Running everything at once would fit in the runner's memory too, but that has never been run,
 even locally. Try it once the separate runs are stable: it would shorten the job and test the

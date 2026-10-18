@@ -209,7 +209,7 @@ EOF
   local jdk=${JDK[$1]:-$DEFAULT_JDK}
   [[ -x $jdk/bin/java ]] \
     || { echo "JDK not found: $jdk (install it with sdkman, or set SMOKE_JDK_17/SMOKE_JDK_21)" >&2; exit 1; }
-  echo "Using JDK $(basename "$jdk")"
+  echo "Using JDK $jdk"
   JAVA_HOME=$jdk "$PB/$1/gradlew" --no-daemon -q -p "$PB/$1" -I "$WORK/podman.init.gradle" "${props[@]}" bootBuildImage \
     > "$WORK/build.log" 2>&1 || { tail -40 "$WORK/build.log"; echo "$1 image build FAILED" >&2; exit 1; }
   echo "Image built"
