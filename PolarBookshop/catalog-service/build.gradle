@@ -18,6 +18,7 @@ configurations {
 	}
 
 	mockitoAgent
+	otelAgent
 }
 
 repositories {
@@ -44,7 +45,7 @@ dependencies {
 	implementation 'org.flywaydb:flyway-database-postgresql'
 
 	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
-	runtimeOnly "io.opentelemetry.javaagent:opentelemetry-javaagent:${otelVersion}"
+	otelAgent "io.opentelemetry.javaagent:opentelemetry-javaagent:${otelVersion}"
 	runtimeOnly 'org.postgresql:postgresql'
 	annotationProcessor "org.springframework.boot:spring-boot-configuration-processor"
 
@@ -85,6 +86,14 @@ springBoot {
 
 bootRun {
 	systemProperty 'spring.profiles.active', 'testdata'
+}
+
+// The OpenTelemetry agent goes into the jar's root under a fixed name, outside the application's
+// classpath, so that the -javaagent paths of the deployments don't change with its version.
+tasks.named('bootJar') {
+	from(configurations.otelAgent) {
+		rename { 'opentelemetry-javaagent.jar' }
+	}
 }
 
 bootBuildImage {

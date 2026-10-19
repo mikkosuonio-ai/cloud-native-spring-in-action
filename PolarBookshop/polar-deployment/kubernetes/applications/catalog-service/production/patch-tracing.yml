@@ -18,3 +18,5 @@ spec:
               value: grpc
             - name: OTEL_METRICS_EXPORTER
               value: none
+            - name: OTEL_LOGS_EXPORTER
+              value: none

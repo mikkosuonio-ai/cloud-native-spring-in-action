@@ -20,12 +20,16 @@ ext {
 	set('springCloudVersion', "2021.0.9")
 }
 
+configurations {
+	otelAgent
+}
+
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.cloud:spring-cloud-config-server'
 
 	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
-	runtimeOnly "io.opentelemetry.javaagent:opentelemetry-javaagent:${otelVersion}"
+	otelAgent "io.opentelemetry.javaagent:opentelemetry-javaagent:${otelVersion}"
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
@@ -38,6 +42,14 @@ dependencyManagement {
 
 springBoot {
 	buildInfo()
+}
+
+// The OpenTelemetry agent goes into the jar's root under a fixed name, outside the application's
+// classpath, so that the -javaagent paths of the deployments don't change with its version.
+tasks.named('bootJar') {
+	from(configurations.otelAgent) {
+		rename { 'opentelemetry-javaagent.jar' }
+	}
 }
 
 bootBuildImage {
