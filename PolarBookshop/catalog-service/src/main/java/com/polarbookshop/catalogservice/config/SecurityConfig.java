@@ -1,5 +1,7 @@
 package com.polarbookshop.catalogservice.config;
 
+import jakarta.servlet.DispatcherType;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -20,6 +22,10 @@ public class SecurityConfig {
 	SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 		return http
 				.authorizeHttpRequests(authorize -> authorize
+						// The error dispatch renders a response whose status is already set, such as
+						// 404 or 500. Checking it too would turn every error response to an anonymous
+						// request into 401.
+						.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
 						.requestMatchers("/actuator/**").permitAll()
 						.requestMatchers(HttpMethod.GET, "/", "/books/**").permitAll()
 						.anyRequest().hasRole("employee")
