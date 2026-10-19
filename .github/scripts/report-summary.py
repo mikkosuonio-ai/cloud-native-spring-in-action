@@ -81,14 +81,15 @@ def main(reports_dir, artifacts=None):
     print("|---|---|--:|--:|--:|--:|--:|---|")
     failures = []
     for project, build in projects:
+        # Without test results the artifact still holds the logs, so the row links to it too.
+        link = f"[download]({links[build.name]})" if build.name in links else ""
         results = test_results(build)
         if results is None:
-            print(f"| {project} | no test results | | | | | | |")
+            print(f"| {project} | no test results | | | | | | {link} |")
             continue
         tests, failed, skipped, names = results
         line, branch = coverage(build)
         result = "failed" if failed else "passed"
-        link = f"[download]({links[build.name]})" if build.name in links else ""
         print(f"| {project} | {result} | {tests} | {failed} | {skipped} | {line} | {branch} | {link} |")
         failures += [(project, name) for name in names]
     if failures:
