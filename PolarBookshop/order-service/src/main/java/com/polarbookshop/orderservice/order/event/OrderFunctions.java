@@ -15,11 +15,14 @@ public class OrderFunctions {
 
 	private static final Logger log = LoggerFactory.getLogger(OrderFunctions.class);
 
+	// Not reactive: an error in a reactive consumer ends its stream, and with it the consumption of
+	// every later message. Here an error fails only its own message, which the binder retries and
+	// then logs.
 	@Bean
-	public Consumer<Flux<OrderDispatchedMessage>> dispatchOrder(OrderService orderService) {
-		return flux -> orderService.consumeOrderDispatchedEvent(flux)
+	public Consumer<OrderDispatchedMessage> dispatchOrder(OrderService orderService) {
+		return message -> orderService.consumeOrderDispatchedEvent(Flux.just(message))
 				.doOnNext(order -> log.info("The order with id {} is dispatched", order.id()))
-				.subscribe();
+				.blockLast();
 	}
 
 }

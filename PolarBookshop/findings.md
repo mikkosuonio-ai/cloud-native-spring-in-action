@@ -91,6 +91,9 @@ event is sent only after the order is visible. `OrderAcceptedEventTests` checks,
 JDBC connection, that the order is committed at the moment the event is sent. It failed before
 the fix. Afterwards, three cold and six warm smoke-test runs all passed.
 
-**Still worth knowing:** messages enter order-service's reactive consumer already acknowledged, so
-any message it drops (for example, if a database error ends the stream) isn't delivered again.
-Future work item 3 in the smoke-test skill covers restart and broker-outage behaviour.
+**Still worth knowing:** messages entered order-service's reactive consumer already acknowledged,
+so any message it dropped wasn't delivered again, and a database error ended the stream for good.
+Since review finding 2 (`development/plan/review-2026-10-19.md`), the consumer takes one message
+at a time and isn't reactive: a failed message is tried three times, logged and dropped, and the
+next one is still consumed. There's no dead-letter queue. Future work item 3 in the smoke-test
+skill covers restart and broker-outage behaviour.
