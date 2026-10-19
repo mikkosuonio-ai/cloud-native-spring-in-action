@@ -31,7 +31,8 @@ initially. Under Podman with the same limit, Keycloak was killed the same way on
 to the JVM with `JAVA_OPTS_APPEND=-XX:MaxRAM=$(MEMORY_LIMIT)`, where `MEMORY_LIMIT` is the
 container's `limits.memory` from the Downward API. The JVM then sizes the heap from the limit
 whether or not it detects it. On the development server, the heap stays the same. Under Podman on
-the runner, Keycloak then started within the 750Mi limit, with a peak of 622 MiB.
+the runner, Keycloak then started within the 750Mi limit, with a peak of 622 MiB, and the
+`smoke-k8s` job passed all 93 checks.
 
 ### Kubernetes restarted the apps when they started slowly
 

@@ -252,10 +252,10 @@ jobs:
     permissions:
       contents: read
     env:
-      # The runner's kubectl with MicroK8s' kubeconfig, set up below. Through
-      # `sudo microk8s kubectl`, the script's Keycloak port-forward would run as root, and the
-      # script couldn't stop it.
-      KUBECTL: kubectl
+      # MicroK8s' own kubectl, which matches the cluster's version, with its kubeconfig, set up
+      # below. Through `sudo microk8s kubectl`, the script's Keycloak port-forward would run as
+      # root, and the script couldn't stop it.
+      KUBECTL: /snap/microk8s/current/kubectl
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -294,13 +294,13 @@ jobs:
           echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
       - name: Wait for the cluster DNS and registry
         run: |
-          kubectl -n kube-system rollout status deployment/coredns --timeout=300s
-          kubectl -n container-registry rollout status deployment/registry --timeout=300s
+          "$KUBECTL" -n kube-system rollout status deployment/coredns --timeout=300s
+          "$KUBECTL" -n container-registry rollout status deployment/registry --timeout=300s
           curl -sSf --retry 20 --retry-delay 3 --retry-connrefused http://localhost:32000/v2/
       - name: Show tool versions and runner resources
         run: |
           podman version
-          kubectl version
+          "$KUBECTL" version
           free -h
           df -h /
       - name: Smoke test

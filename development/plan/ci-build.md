@@ -312,10 +312,11 @@ Changes:
   the runner. MicroK8s keeps its own copies of the images, in its registry and in containerd,
   which would take most of the 4.5 GB the Podman jobs leave free. Its kubelet evicts pods when
   less than 1 GiB is free.
-- Run `development/script/smoke-test.sh all --k8s --rebuild` with the runner's kubectl
-  (`KUBECTL=kubectl`) and the kubeconfig from `sudo microk8s config`. The script already reads
-  `KUBECTL`. With `sudo microk8s kubectl`, the script's Keycloak port-forward would run as root,
-  and the script couldn't stop it at exit.
+- Run `development/script/smoke-test.sh all --k8s --rebuild` with MicroK8s' own kubectl binary
+  (`KUBECTL=/snap/microk8s/current/kubectl`) and the kubeconfig from `sudo microk8s config`. The
+  script already reads `KUBECTL`. With `sudo microk8s kubectl`, the script's Keycloak
+  port-forward would run as root, and the script couldn't stop it at exit. The runner's own
+  kubectl is newer than the cluster by more than the one minor version kubectl supports.
 - On failure, upload the output of `smoke-test.sh logs --k8s`.
 
 **Done when:** the job is green, with no restarts, on a branch push.
@@ -328,6 +329,30 @@ Risks:
   doesn't use Docker, so it sets the policy to `ACCEPT` before enabling the addons.
 - The disk, even after the cleanup: record the free space after the run.
 - The snap install and the addons add a few minutes.
+
+Results of the first runs (2026-10-19):
+- In the first run, Keycloak was OOM-killed at its 750Mi limit at every start, because the JVM
+  in its image doesn't detect the container's memory limit on the runner's kernel. The apps
+  started without restarts. Two diagnostic runs on a throwaway branch found the cause, and the
+  fix sizes Keycloak's heap from the limit; see the finding in `PolarBookshop/findings.md`. The
+  failed run's summary had a failed row for the job, and its artifact had the namespace's state
+  and logs. The summary blamed the last deployment, dispatcher-service, though, because the
+  rollouts are waited for under its heading.
+- With the fix, the job was green with 93 checks, as many as on the development server, and none
+  of the apps restarted. Reaching the ClusterIPs from the host, the Keycloak port-forward and the
+  registry worked unchanged. The `FORWARD` policy was set to `ACCEPT` from the first run, so
+  whether pods need it on the runner is unknown.
+- The first runs used the runner's kubectl 1.37.1, which warned about the skew against the
+  cluster's 1.35.6, so the job now uses MicroK8s' own kubectl.
+- Duration: the job took 10m38s, and the whole run 13m22s, against 9m44s with only the Podman
+  jobs. The disk cleanup, the MicroK8s install and the wait for the addons took 2m21s, the four
+  image builds 4m33s, the deployment until everything was ready 2m54s, and the checks 16
+  seconds. Keycloak was ready last, 2m53s after it was deployed; its startup probe allows 400
+  seconds.
+- Disk: the cleanup freed 20 GB, from 13 GB to 33 GB free, and 22 GB was free after the run.
+  MicroK8s, its copies of the images and the Podman images took 11 GB together, so without the
+  cleanup about 2 GB would have been left.
+- Memory: 6.2 GiB was available with MicroK8s running, before the image builds.
 
 If MicroK8s turns out to be unreliable or slow on the runner, kind is the fallback. It is
 preinstalled and starts faster, but it would need its own code path in the script's `--k8s` mode,
