@@ -431,11 +431,13 @@ jobs:
       - name: List report artifacts
         env:
           GH_TOKEN: ${{ github.token }}
+        # On an HTTP error gh writes the error response to the file too, so it's emptied then.
         run: |
           gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
             --jq '.artifacts[] | select(.name | startswith("reports-")) | "\(.name)\t\(.id)"' \
             > artifacts.tsv \
-            || echo "::warning::Could not list the artifacts, so the summary has no links."
+            || { : > artifacts.tsv
+                 echo "::warning::Could not list the artifacts, so the summary has no links."; }
       - name: Summarize reports
         run: python3 .github/scripts/report-summary.py reports artifacts.tsv >> "$GITHUB_STEP_SUMMARY"
 
