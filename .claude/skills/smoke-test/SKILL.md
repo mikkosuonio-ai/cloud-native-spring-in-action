@@ -69,8 +69,11 @@ and for machines set up differently from this one:
 
    The script removes the selected app containers before building. Its estimate doesn't account
    for backing services that are already running, so its warning can be overcautious on a rerun.
-2. Run `smoke-test.sh all` (add a selection and/or `--rebuild` if needed) with a Bash timeout of
-   about 10 minutes. The first build of each service pulls its Paketo builder.
+2. Run `smoke-test.sh all` (add a selection and/or `--rebuild` if needed). A run that builds
+   images, with `--rebuild`, `build` or images still missing, can take longer than a foreground
+   Bash call's 10-minute limit, which would kill it midway, so run it in the background and wait
+   for it to finish. The first build of each service also pulls its Paketo builder. A run
+   without builds takes a few minutes.
 3. Report the PASS/FAIL lines to the user. The script exits non-zero if any check fails. On a
    failure, run `smoke-test.sh logs <dir>` (with `--k8s` for the cluster) and look at the logs
    before reporting. It writes each container's log, their state including exit codes and OOM

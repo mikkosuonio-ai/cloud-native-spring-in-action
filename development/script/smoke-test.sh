@@ -143,12 +143,14 @@ declare -A BASE_URL=([catalog-service]=$CATALOG [order-service]=$ORDER [dispatch
                      [config-service]=$CONFIG [edge-service]=$EDGE)
 WORK=$(mktemp -d)
 PIDS=()   # background kubectl port-forwards and Podman API service
+PAUSED=   # a container test_edge has paused, until it unpauses it
 # Kills a process and its descendants: kubectl runs under MicroK8s' wrapper scripts, which
 # would keep running without their parent.
 kill_tree() { local c; for c in $(pgrep -P "$1"); do kill_tree "$c"; done; kill "$1" 2>/dev/null; }
 on_exit() {
   local status=$? pid
   for pid in "${PIDS[@]}"; do kill_tree "$pid"; done
+  [[ -n $PAUSED ]] && podman unpause "$PAUSED" >/dev/null
   [[ -n ${SMOKE_JUNIT:-} && ( $CMD == test || $CMD == all ) ]] && write_junit "$status"
   rm -rf "$WORK"
 }
@@ -157,11 +159,15 @@ trap on_exit EXIT
 SECTION=   # the last log heading; the class name of the checks under it in SMOKE_JUNIT
 log() { SECTION=$*; printf '\n== %s\n' "$*"; }
 
+# Every request has a time limit, so that a hung service fails its checks instead of hanging the
+# run. The circuit breaker checks need more than edge-service's 5 s time limit.
+curl() { command curl --connect-timeout 5 --max-time 30 "$@"; }
+
 wait_until() { # timeout-seconds description command...
-  local t=$1 what=$2 i=0; shift 2
+  local end=$((SECONDS + $1)) what=$2; shift 2
   printf 'Waiting for %s ' "$what"
   until "$@" >/dev/null 2>&1; do
-    (( i += 3 )); (( i > t )) && { echo " TIMEOUT"; return 1; }
+    (( SECONDS >= end )) && { echo " TIMEOUT"; return 1; }
     printf '.'; sleep 3
   done
   echo " ok"
@@ -565,19 +571,22 @@ ET.ElementTree(suite).write(out, encoding="UTF-8", xml_declaration=True)
 EOF
   echo "JUnit results written to $SMOKE_JUNIT"
 }
-# req METHOD URL [TOKEN] [JSON] -> sets $CODE and $BODY
+# req METHOD URL [TOKEN] [JSON] -> sets $CODE and $BODY. The request helpers remove the response
+# file first, so that a failed request leaves $BODY empty instead of the previous response.
 req() {
   local args=(-s -o "$WORK/body" -w '%{http_code}' -X "$1")
   [[ -n ${3:-} ]] && args+=(-H "Authorization: Bearer $3")
   [[ -n ${4:-} ]] && args+=(-H 'Content-Type: application/json' -d "$4")
-  CODE=$(curl "${args[@]}" "$2"); BODY=$(cat "$WORK/body")
+  rm -f "$WORK/body"
+  CODE=$(curl "${args[@]}" "$2"); BODY=$(cat "$WORK/body" 2>/dev/null)
 }
 # json EXPR -> evaluates EXPR with d = parsed $BODY
 json() { python3 -I -c "import sys,json; d=json.load(sys.stdin); print($1)" <<<"$BODY" 2>/dev/null; }
 rabbit() { # METHOD PATH [JSON] -> sets $CODE and $BODY
   local args=(-s -o "$WORK/body" -w '%{http_code}' -u "$RABBIT_AUTH" -X "$1")
   [[ -n ${3:-} ]] && args+=(-H 'Content-Type: application/json' -d "$3")
-  CODE=$(curl "${args[@]}" "$RABBIT$2"); BODY=$(cat "$WORK/body")
+  rm -f "$WORK/body"
+  CODE=$(curl "${args[@]}" "$RABBIT$2"); BODY=$(cat "$WORK/body" 2>/dev/null)
 }
 consumer_bound() { # queue
   rabbit GET "/queues/%2F/$1"
@@ -778,7 +787,8 @@ edge() {
     local xsrf; xsrf=$(awk '$6 == "XSRF-TOKEN" {print $7}' "$3" 2>/dev/null | tail -1)
     [[ -n $xsrf ]] && args+=(-H "X-XSRF-TOKEN: $xsrf")
   fi
-  read -r CODE LOCATION < <(curl "${args[@]}" "$EDGE$2"); BODY=$(cat "$WORK/body")
+  rm -f "$WORK/body" "$WORK/headers"
+  read -r CODE LOCATION < <(curl "${args[@]}" "$EDGE$2"); BODY=$(cat "$WORK/body" 2>/dev/null)
 }
 
 # Logs USER in through edge-service's OAuth2 authorization-code flow, as a browser would.
@@ -852,11 +862,11 @@ test_edge() {
 
   # Circuit breaker: with catalog-service frozen, reads fall back to an empty 200 and
   # writes to 503 (after the 5 s time limit).
-  podman pause catalog-service >/dev/null
+  PAUSED=catalog-service; podman pause catalog-service >/dev/null
   edge GET /books "$anon";                  check "GET /books, catalog down: fallback" 200 "$CODE"
   check "fallback body is empty"            "" "$BODY"
   edge POST /books "$bj" "$book";           check "POST /books, catalog down"         503 "$CODE"
-  podman unpause catalog-service >/dev/null
+  podman unpause catalog-service >/dev/null; PAUSED=
   edge GET /books "$anon";                  check "GET /books, catalog back"          200 "$CODE"
   check "books returned again"              True "$(json 'len(d) >= 2')"
 }
@@ -953,6 +963,7 @@ test_metrics() {
   local s
   for s in "${TRACED[@]}"; do
     has "$s" || continue
+    rm -f "$WORK/body"
     CODE=$(curl -s -o "$WORK/body" -w '%{http_code}' "${BASE_URL[$s]}/actuator/prometheus")
     check "$s /actuator/prometheus"           200 "$CODE"
     check "$s JVM metrics tagged with its name" True \
