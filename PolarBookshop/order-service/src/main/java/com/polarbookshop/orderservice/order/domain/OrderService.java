@@ -34,12 +34,17 @@ public class OrderService {
 	// Not @Transactional: the single save commits on its own, so the order-accepted event is only
 	// sent once the order is visible. Inside a transaction the event went out before the commit,
 	// and dispatcher-service's order-dispatched reply could find no order to update.
+	//
+	// The trade-off: the order is committed before its event is sent. If the send fails, such as
+	// while RabbitMQ is down, the order is marked FAILED, so that it isn't left ACCEPTED for good
+	// and a client's retry doesn't add a second ACCEPTED order. The event isn't sent later; that
+	// would take a transactional outbox.
 	public Mono<Order> submitOrder(String isbn, int quantity) {
 		return bookClient.getBookByIsbn(isbn)
 				.map(book -> buildAcceptedOrder(book, quantity))
 				.defaultIfEmpty(buildRejectedOrder(isbn, quantity))
 				.flatMap(orderRepository::save)
-				.doOnNext(this::publishOrderAcceptedEvent);
+				.flatMap(this::publishOrderAcceptedEvent);
 	}
 
 	public static Order buildAcceptedOrder(Book book, int quantity) {
@@ -51,31 +56,41 @@ public class OrderService {
 		return Order.of(bookIsbn, null, null, quantity, OrderStatus.REJECTED);
 	}
 
-	private void publishOrderAcceptedEvent(Order order) {
+	private Mono<Order> publishOrderAcceptedEvent(Order order) {
 		if (!order.status().equals(OrderStatus.ACCEPTED)) {
-			return;
+			return Mono.just(order);
 		}
 		var orderAcceptedMessage = new OrderAcceptedMessage(order.id());
 		log.info("Sending order accepted event with id: {}", order.id());
-		var result = streamBridge.send("acceptOrder-out-0", orderAcceptedMessage);
-		log.info("Result of sending data for order with id {}: {}", order.id(), result);
+		try {
+			var result = streamBridge.send("acceptOrder-out-0", orderAcceptedMessage);
+			log.info("Result of sending data for order with id {}: {}", order.id(), result);
+			if (result) {
+				return Mono.just(order);
+			}
+		}
+		catch (RuntimeException ex) {
+			log.error("Could not send the order accepted event for order {}", order.id(), ex);
+		}
+		log.warn("Marking order {} as {}", order.id(), OrderStatus.FAILED);
+		return orderRepository.save(withStatus(order, OrderStatus.FAILED));
 	}
 
 	public Flux<Order> consumeOrderDispatchedEvent(Flux<OrderDispatchedMessage> flux) {
 		return flux
 				.flatMap(message -> orderRepository.findById(message.orderId()))
-				.map(this::buildDispatchedOrder)
+				.map(order -> withStatus(order, OrderStatus.DISPATCHED))
 				.flatMap(orderRepository::save);
 	}
 
-	private Order buildDispatchedOrder(Order existingOrder) {
+	private static Order withStatus(Order existingOrder, OrderStatus status) {
 		return new Order(
 				existingOrder.id(),
 				existingOrder.bookIsbn(),
 				existingOrder.bookName(),
 				existingOrder.bookPrice(),
 				existingOrder.quantity(),
-				OrderStatus.DISPATCHED,
+				status,
 				existingOrder.createdDate(),
 				existingOrder.lastModifiedDate(),
 				existingOrder.createdBy(),

@@ -5,7 +5,22 @@ Issues found while running the smoke tests (`development/script/smoke-test.sh`, 
 
 ## Open
 
-None.
+### order-service doesn't send an order's event later
+
+Found in the review of 2026-10-19 (`development/plan/review-2026-10-19.md`, finding 3); the
+interim fix is in.
+
+**Symptom:** with RabbitMQ down, `POST /orders` answered 500 after the 5 s connection timeout,
+but the order was saved as ACCEPTED, and its order-accepted event was never sent, so it was never
+dispatched. A client's retry added a second ACCEPTED order.
+
+**Cause:** `submitOrder` commits the order before it sends the event (see "order-service could
+lose an order-dispatched event" below), and nothing sends a failed event again.
+
+**Interim fix:** an order whose event can't be sent is saved as FAILED and returned so, with 200,
+as a REJECTED order is. It isn't left ACCEPTED, and a retry is a new order. The event still isn't
+sent later, which would take a transactional outbox; that's planned for after the dependency
+update. The send also still blocks the R2DBC thread until the connection timeout (finding 26).
 
 ## Resolved
 
@@ -67,7 +82,8 @@ port as `management`.
 `/etc/rabbitmq`, which hides the image's `enabled_plugins` file, so RabbitMQ ran with no plugins.
 
 **Fix:** the ConfigMap also holds `enabled_plugins`, with the image's
-`[rabbitmq_management,rabbitmq_prometheus]`.
+`[rabbitmq_management,rabbitmq_prometheus]`. Since review finding 6, the ConfigMap holds only
+`rabbitmq.conf`, mounted with `subPath`, so the image's own `enabled_plugins` and `conf.d` stay.
 
 ### order-service could lose an order-dispatched event
 
