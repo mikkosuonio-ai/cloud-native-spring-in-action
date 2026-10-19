@@ -157,15 +157,73 @@ jobs:
           validate "$dir" || status=1
           exit "$status"
 
-  # Builds the images of the selected services from this commit and smoke tests them together
-  # with their backing services, as on the development server. Each selection runs on its own
-  # runner: together their images would fill a runner's disk, and each selection gets its own
-  # row, output and logs in the summary.
+  # Builds each service's image from this commit once, with the smoke test script, for all the
+  # smoke test jobs. Runs beside the Gradle builds rather than after them: the image builds
+  # compile the code themselves, and waiting would add the Gradle builds' time to every run. The
+  # smoke test jobs still wait for the Gradle builds too.
+  images:
+    name: Build image ${{ matrix.image }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # The script's name for each service, and its image.
+        include:
+          - { service: catalog, image: catalog-service }
+          - { service: order, image: order-service }
+          - { service: dispatcher, image: dispatcher-service }
+          - { service: config, image: config-service }
+          - { service: edge, image: edge-service }
+          - { service: quote, image: quote-service }
+          - { service: quote-function, image: quote-function }
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Set up JDKs
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+          cache: gradle
+          # A cache per service: each job needs its own project's dependencies only.
+          cache-dependency-path: |
+            PolarBookshop/${{ matrix.image }}/build.gradle
+            PolarBookshop/${{ matrix.image }}/gradle/wrapper/gradle-wrapper.properties
+      - name: Build the image
+        env:
+          SERVICE: ${{ matrix.service }}
+          SMOKE_JDK_17: ${{ env.JAVA_HOME_17_X64 }}
+          SMOKE_JDK_21: ${{ env.JAVA_HOME_21_X64 }}
+        run: bash development/script/smoke-test.sh build "$SERVICE"
+      - name: Save the image
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          mkdir -p image
+          podman save -q -o "image/$IMAGE.tar" "docker.io/library/$IMAGE:latest"
+          ls -l image
+      # Deleted by the delete-images job once the smoke tests are done.
+      - name: Upload the image
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-${{ matrix.image }}
+          path: image/${{ matrix.image }}.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  # Smoke tests the images from the images job together with their backing services, as on the
+  # development server. Each selection runs on its own runner and gets its own row, output and
+  # logs in the summary.
   smoke-podman:
     name: Smoke test on Podman (${{ matrix.services }})
-    needs: [build-java-21, build]
+    needs: [build-java-21, build, images]
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:
@@ -181,39 +239,38 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
-      - name: Set up JDKs
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: |
-            17
-            21
-          cache: gradle
-          # Its own cache key: the image builds need other dependencies than the build jobs.
-          cache-dependency-path: |
-            PolarBookshop/*/build.gradle
-            PolarBookshop/*/gradle/wrapper/gradle-wrapper.properties
       - name: Install podman-compose
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q podman-compose python3-yaml
+      - name: Download the images
+        uses: actions/download-artifact@v8
+        with:
+          pattern: image-*
+          path: images
+          merge-multiple: true
+      - name: Load the images
+        run: |
+          for archive in images/*.tar; do podman load -q -i "$archive"; done
+          rm -r images
+          podman images
       - name: Show Podman and runner resources
         run: |
           podman version
           podman-compose version
           free -h
           df -h /
+      # Without --rebuild, the script uses the loaded images. Without a JDK, it fails if one is
+      # missing.
       - name: Smoke test
         shell: bash # runs with -o pipefail, so the script's status survives tee
         env:
           SERVICES: ${{ matrix.services }}
-          SMOKE_JDK_17: ${{ env.JAVA_HOME_17_X64 }}
-          SMOKE_JDK_21: ${{ env.JAVA_HOME_21_X64 }}
           SMOKE_JUNIT: ${{ github.workspace }}/smoke/test-results/test/TEST-smoke-podman.xml
         run: |
           read -ra services <<< "$SERVICES"
           mkdir -p smoke
-          bash development/script/smoke-test.sh all "${services[@]}" --rebuild 2>&1 | tee smoke/output.txt
+          bash development/script/smoke-test.sh all "${services[@]}" 2>&1 | tee smoke/output.txt
       # These also run when the job times out, which cancels it: a hung stack needs the logs most.
       - name: Collect the containers' state and logs
         if: ${{ !success() }}
@@ -241,14 +298,14 @@ jobs:
           path: smoke/
           retention-days: 14
 
-  # Deploys the services' own k8s/ manifests with images built from this commit to MicroK8s on
+  # Deploys the services' own k8s/ manifests with the images from the images job to MicroK8s on
   # the runner, as the script's --k8s mode does on the development server. --k8s supports the
   # default selection only.
   smoke-k8s:
     name: Smoke test on MicroK8s
-    needs: [build-java-21, build, k8s-manifests]
+    needs: [build-java-21, build, k8s-manifests, images]
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: read
     env:
@@ -259,29 +316,24 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
-      - name: Set up JDKs
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: |
-            17
-            21
-          cache: gradle
-          cache-dependency-path: |
-            PolarBookshop/*/build.gradle
-            PolarBookshop/*/gradle/wrapper/gradle-wrapper.properties
       - name: Install PyYAML
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q python3-yaml
-      # MicroK8s keeps its own copies of the images, in its registry and in containerd, and its
-      # kubelet evicts pods when less than 1 GiB of disk is free. The Podman jobs leave about
-      # 4.5 GB free without these copies.
-      - name: Free disk space
+      - name: Download the images
+        uses: actions/download-artifact@v8
+        with:
+          pattern: image-*
+          path: images
+          merge-multiple: true
+      - name: Load the images
         run: |
-          df -h /
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
-          df -h /
+          for archive in images/*.tar; do podman load -q -i "$archive"; done
+          rm -r images
+          podman images
+      # MicroK8s keeps its own copies of the images, in its registry and in containerd, and its
+      # kubelet evicts pods when less than 1 GiB of disk is free. Without the Paketo builders,
+      # which the images job has, about 6 GB should stay free.
       - name: Install MicroK8s
         run: |
           sudo snap install microk8s --classic --channel=1.35/stable
@@ -306,12 +358,10 @@ jobs:
       - name: Smoke test
         shell: bash # runs with -o pipefail, so the script's status survives tee
         env:
-          SMOKE_JDK_17: ${{ env.JAVA_HOME_17_X64 }}
-          SMOKE_JDK_21: ${{ env.JAVA_HOME_21_X64 }}
           SMOKE_JUNIT: ${{ github.workspace }}/smoke/test-results/test/TEST-smoke-k8s.xml
         run: |
           mkdir -p smoke
-          bash development/script/smoke-test.sh all --k8s --rebuild 2>&1 | tee smoke/output.txt
+          bash development/script/smoke-test.sh all --k8s 2>&1 | tee smoke/output.txt
       - name: Collect the namespace's state and logs
         if: ${{ !success() }}
         run: bash development/script/smoke-test.sh logs smoke/logs --k8s
@@ -335,6 +385,30 @@ jobs:
           name: reports-smoke-k8s
           path: smoke/
           retention-days: 14
+
+  # The images are for this run's smoke tests only. Deleting them right away keeps them from
+  # counting against the account's artifact storage for a day. A failed smoke test job then can't
+  # be re-run on its own; re-run all the jobs instead.
+  delete-images:
+    name: Delete the images
+    needs: [images, smoke-podman, smoke-k8s]
+    # Also when the run is cancelled, such as by a newer push.
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write # deletes the run's artifacts
+    steps:
+      - name: Delete the image artifacts
+        shell: bash # runs with -o pipefail, so a failed listing fails the step
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name | startswith("image-")) | "\(.id) \(.name)"' \
+            | while read -r id name; do
+                gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || exit 1
+                echo "Deleted $name"
+              done
 
   reports:
     name: Test and coverage reports

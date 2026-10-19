@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Smoke test for PolarBookshop services running under Podman, or on MicroK8s with --k8s.
 #
-# Usage: smoke-test.sh up|test|down|all [catalog] [order] [dispatcher] [config] [edge] [quote]
-#                      [quote-function] [observability] [--rebuild] [--k8s]
+# Usage: smoke-test.sh up|test|down|all|build [catalog] [order] [dispatcher] [config] [edge]
+#                      [quote] [quote-function] [observability] [--rebuild] [--k8s]
 #        smoke-test.sh logs DIR [--k8s]
+#   build   build the images of the given services, always, and not of the services they need
 #   up      build missing images (or all selected with --rebuild), start backing services + apps
 #   test    run the HTTP smoke tests against the running stack
 #   down    remove the app containers and the compose backing services (--k8s: the namespace)
@@ -34,7 +35,7 @@ K8S=0
 SELECTED=()
 while (( $# )); do
   case $1 in
-    up|test|down|all)        CMD=$1 ;;
+    up|test|down|all|build)  CMD=$1 ;;
     logs)                    CMD=logs LOGS_DIR=${2:-}; [[ $LOGS_DIR == [^-]* ]] || { usage; exit 2; }; shift ;;
     help|-h|--help)          usage; exit 0 ;;
     --rebuild)               REBUILD=1 ;;
@@ -62,6 +63,14 @@ selected dispatcher && SERVICES+=(dispatcher-service)
 selected edge && SERVICES+=(polar-ui edge-service)
 selected quote && SERVICES+=(quote-service)
 selected quote-function && SERVICES+=(quote-function)
+# CI builds each image once, in a job of its own, so build takes the services as given.
+if [[ $CMD == build ]]; then
+  declare -A IMAGE_OF=([catalog]=catalog-service [order]=order-service [dispatcher]=dispatcher-service
+                       [config]=config-service [edge]=edge-service [quote]=quote-service
+                       [quote-function]=quote-function)
+  SERVICES=()
+  for a in "${SELECTED[@]}"; do [[ -n ${IMAGE_OF[$a]:-} ]] && SERVICES+=("${IMAGE_OF[$a]}"); done
+fi
 ALL_APPS=(catalog-service order-service dispatcher-service config-service polar-ui edge-service
           quote-service quote-function)
 # Services absent from the compose file: published port for `podman run`.
@@ -1123,6 +1132,7 @@ if (( K8S )); then
   logs() { k8s_logs; }
 fi
 case $CMD in
+  build) REBUILD=1; build_images ;;
   up)   up ;;
   test) run_tests ;;
   down) down ;;

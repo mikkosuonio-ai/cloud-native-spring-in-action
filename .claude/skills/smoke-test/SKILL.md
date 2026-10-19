@@ -21,6 +21,7 @@ bash development/script/smoke-test.sh all --rebuild    # rebuild the selected im
 bash development/script/smoke-test.sh test             # rerun the tests against a running stack
 bash development/script/smoke-test.sh down             # remove all the containers
 bash development/script/smoke-test.sh logs DIR         # write the containers' state and logs to DIR
+bash development/script/smoke-test.sh build order      # (re)build order-service's image only, without catalog's
 bash development/script/smoke-test.sh help             # usage; a call without a command prints it too
 bash development/script/smoke-test.sh all catalog --k8s  # on MicroK8s instead, see "Kubernetes"
 ```
@@ -46,8 +47,9 @@ doesn't fit in memory. `order dispatcher observability` covers the whole order f
 Pass `--rebuild` when the user wants to test the current code in the worktree. Without it, the
 script reuses existing images, which may have been built from another worktree or an older commit.
 
-CI runs the same script. Three environment variables are for it, and for machines set up
-differently from this one:
+CI runs the same script. It builds each image once with `build`, in a job of its own, and the
+smoke test jobs run without `--rebuild` on those images. Three environment variables are for CI,
+and for machines set up differently from this one:
 - `SMOKE_JDK_17` and `SMOKE_JDK_21` name the JDKs for the image builds instead of the sdkman ones.
 - `SMOKE_JUNIT=<file>` makes `test` and `all` also write every check to the file as a JUnit test
   case. A run that stops before its tests finish, such as one whose `up` fails, gets an error

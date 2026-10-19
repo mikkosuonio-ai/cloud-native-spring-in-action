@@ -26,10 +26,11 @@ steps come first, and the steps that need new tooling on the runner come later.
 ```
 push / weekly / manual
  ├── build-java-21 (catalog-service) ──┐
- ├── build (6 services, Java 17) ──────┼──► images ──┬──► smoke-podman   whole system on Podman + compose
- │                                     │             └──► smoke-k8s      catalog, order, dispatcher, config on MicroK8s
- └── k8s-manifests (kustomize + kubeconform) ──────────► smoke-k8s
-                                          reports ◄── all of the above: test, coverage and smoke summary
+ ├── build (6 services, Java 17) ──────┼──┬──► smoke-podman   whole system on Podman + compose
+ ├── images (one job per service) ─────┘  └──► smoke-k8s      catalog, order, dispatcher, config on MicroK8s
+ └── k8s-manifests (kustomize + kubeconform) ──► smoke-k8s
+                       reports ◄── all of the above: test, coverage and smoke summary
+                 delete-images ◄── images and the smoke jobs: deletes the image artifacts
 ```
 
 Everything stays in one workflow and runs on every push. The smoke jobs start only when the
@@ -373,17 +374,33 @@ both smoke jobs, and any testing job added later, can load the images without a 
 images never leave the run.
 
 Changes:
-- Add a `build` command to the script that only builds the selected images, so the JDK choice
-  and the native-image override stay in one place.
-- Add an `images` job, `needs` the Gradle build jobs, that builds the images with it. It saves
-  them with `podman save` into one archive (layers the images share are stored once) and uploads
-  it with `retention-days: 1`. polar-ui and the backing services aren't built, so they are pulled
+- Add a `build` command to the script that only builds the given services' images, so the JDK
+  choice and the native-image override stay in one place. Unlike the other commands, it doesn't
+  add the services they need: `build order` builds order-service only.
+- Add an `images` matrix job with one job per service, each building its image with
+  `smoke-test.sh build <service>`. Each saves its image with `podman save` and uploads it as an
+  `image-<image>` artifact with `retention-days: 1`. Each job has its own Gradle cache key, from
+  its project's build files. polar-ui and the backing services aren't built, so they are pulled
   as before.
-- The smoke jobs `need` the `images` job, download the archive, `podman load` it and run without
-  `--rebuild`, so the script uses the loaded images.
+- The `images` jobs run beside the Gradle builds, not after them. The image builds compile the
+  code themselves, so they don't need the Gradle builds, and the smoke jobs still wait for both.
+  After the Gradle builds, the images would add their own 3 minutes to every run.
+- The smoke jobs `need` the `images` job, download all the image artifacts, `podman load` them
+  and run without `--rebuild`, so the script uses the loaded images. They no longer set up JDKs
+  or Gradle, so a missing image fails the job instead of being built.
+- Without the builders, the MicroK8s job drops its disk cleanup.
+- A `delete-images` job deletes the image artifacts once the smoke jobs are done, also when the
+  run fails or is cancelled. A private repository's artifact storage is metered hourly, in
+  GB-hours. GitHub Free includes 500 MB, about 370 GB-hours a month, and blocks usage beyond it
+  without a payment method. A gigabyte of images kept for a day is 24 GB-hours, so the included
+  storage would last about 15 runs. A failed smoke job then can't be re-run on its own; re-run
+  all the jobs instead.
 
-If the single `images` job takes too long, a matrix job per service can build them in parallel,
-each uploading its own artifact.
+The plan was one `images` job building all the images into one archive, after the Gradle builds.
+Measured with the development server's images, a multi-image archive is 1.06 GB, 0.56 GB
+compressed, against 1.04 GB for the seven compressed archives, so one archive would save half of
+the transfer. But one job building seven images one after another takes 8-10 minutes, and after
+the Gradle builds a run would take longer than with step 8.
 
 **Done when:** the smoke jobs don't run Gradle, both test the images from the `images` job, and a
 run takes less time than with step 8 alone.
