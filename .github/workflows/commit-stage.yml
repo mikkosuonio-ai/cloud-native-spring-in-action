@@ -6,9 +6,14 @@ on:
   workflow_dispatch:
 
 # The smoke tests make a run long, and a newer push to the same branch makes an older run
-# pointless.
+# pointless. That's not so on the default branch, where each push needs its own result, or for
+# scheduled and manual runs. Those each get a group of their own, since a group would also
+# cancel a pending run when a newer one queues, even without cancel-in-progress.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: >-
+    ${{ github.workflow }}-${{ github.ref }}-${{
+    github.event_name == 'push' && github.ref_name != github.event.repository.default_branch
+    && 'push' || github.run_id }}
   cancel-in-progress: true
 
 jobs:
