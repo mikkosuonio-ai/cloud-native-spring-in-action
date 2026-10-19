@@ -7,7 +7,7 @@ reports. Only `PolarBookshop/` is in scope; the `Chapter*` snapshots stay out of
 Each step is a separate change that leaves CI green and is useful on its own. Cheap, low-risk
 steps come first, and the steps that need new tooling on the runner come later.
 
-## Where CI is now
+## Where CI was before this plan
 
 - One workflow, `.github/workflows/commit-stage.yml`, runs on every push to any branch and weekly
   on Mondays. The workflows under `PolarBookshop/*/.github/` are the book's per-repository copies
@@ -405,6 +405,21 @@ the Gradle builds a run would take longer than with step 8.
 **Done when:** the smoke jobs don't run Gradle, both test the images from the `images` job, and a
 run takes less time than with step 8 alone.
 
+Results of the first run (2026-10-19):
+- All seven images were built, and every smoke job passed with as many checks as before: 93 on
+  MicroK8s, and 80, 87, 39 and 80 on Podman. Each used the loaded images ("Using existing
+  ... image") and built nothing. The `delete-images` job deleted all seven image artifacts.
+- The run took 8m43s, against 13m46s with step 8. The image jobs took 2m00s-3m19s, config-service
+  the longest, beside Gradle builds of up to 2m39s. Their Gradle caches were still empty. The
+  smoke jobs started at 3m25s, and the MicroK8s job took 5m07s instead of 10m51s. In it,
+  downloading the seven images took 19 seconds and loading them 35 seconds.
+- The image artifacts were 1.05 GB together, 95-183 MB each.
+- Disk: without the cleanup, 6.8 GB was free on the MicroK8s runner after the run, and 9.1-12 GB
+  on the Podman runners.
+- Runner minutes: the run's 22 jobs took 45.8 minutes, 57 billed minutes with each job rounded up
+  to a whole minute, against 43.5 and 52 with step 8. The seven image jobs each set up a runner
+  and pull a builder, which costs a bit more than the 16 image builds they replace.
+
 ## Decisions
 
 1. **The script moves to `development/script/`** (step 3). The skill stays in
@@ -412,7 +427,8 @@ run takes less time than with step 8 alone.
 2. **The smoke tests run on every push**, in the same workflow as the Gradle builds, with
    cancel-in-progress per branch. If that turns out too slow, they move into a separate workflow;
    see Future work.
-3. **The images are shared as artifacts inside the run** (step 9), not through a registry.
+3. **The images are shared as artifacts inside the run** (step 9), not through a registry, and
+   deleted when the smoke tests are done.
 
 ## Future work
 
@@ -429,9 +445,10 @@ Smaller issues found in the current workflow:
 Further steps, out of scope for now:
 - **A separate smoke test workflow**, if running the smoke tests on every push is too slow. It
   would start with `workflow_run` when the build workflow completes, and download the images from
-  the triggering run (`actions/download-artifact` with `run-id` and a token). Note that
-  `workflow_run` always uses the workflow file from the default branch, so changes to the smoke
-  workflow on a branch only take effect after they're merged.
+  the triggering run (`actions/download-artifact` with `run-id` and a token). The build workflow
+  then can't delete the images itself; the smoke workflow would. Note that `workflow_run` always
+  uses the workflow file from the default branch, so changes to the smoke workflow on a branch
+  only take effect after they're merged.
 - **`ubuntu-26.04` runners**, once the image is generally available, or when the development
   server moves to 26.04. The image is in public preview and has newer tool versions, Podman among
   them, than the server, so the smoke tests would run against a different setup than the local
