@@ -26,6 +26,14 @@ spec:
               value: user
             - name: KEYCLOAK_ADMIN_PASSWORD
               value: password
+            # kc.sh sizes the heap from the memory the JVM sees. Where the JVM doesn't detect the
+            # container's limit, such as with newer kernels, it would size it from the node's RAM.
+            - name: MEMORY_LIMIT
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
+            - name: JAVA_OPTS_APPEND
+              value: -XX:MaxRAM=$(MEMORY_LIMIT)
           startupProbe:
             httpGet:
               path: /realms/master

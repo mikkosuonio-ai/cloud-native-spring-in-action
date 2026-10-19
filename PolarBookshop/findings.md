@@ -9,6 +9,30 @@ None.
 
 ## Resolved
 
+### Keycloak ran out of memory on Kubernetes on GitHub's runners
+
+Found and fixed 2026-10-19 with the `smoke-k8s` CI job, which runs `smoke-test.sh all --k8s` on
+MicroK8s on a GitHub runner.
+
+**Symptom:** `polar-keycloak` was OOM-killed at its 750Mi memory limit about 20 seconds after each
+start, while it was still building its configuration, and ended up in CrashLoopBackOff. The apps
+started without restarts. On the development server, the same image with the same limit started
+without restarts.
+
+**Cause:** `kc.sh` sizes Keycloak's heap as a percentage of the memory the JVM sees: in a
+container, at most 70% and initially 50%. The image's JVM, OpenJDK 17.0.14, reads `/proc/cgroups`
+to check that the memory and cpu controllers are enabled. On the runner's kernel, 6.17, it
+concluded that they were disabled and ignored the container's limits. It sized the heap from the
+runner's 7.75 GiB of RAM instead: 5.4 GiB at most and 3.9 GiB initially. On the development
+server's kernel, 6.8, it detects the limit and sizes the heap to 526 MiB at most and 376 MiB
+initially. Under Podman with the same limit, Keycloak was killed the same way on the runner.
+
+**Fix:** the Deployment in `platform/development/services/keycloak.yml` passes its memory limit
+to the JVM with `JAVA_OPTS_APPEND=-XX:MaxRAM=$(MEMORY_LIMIT)`, where `MEMORY_LIMIT` is the
+container's `limits.memory` from the Downward API. The JVM then sizes the heap from the limit
+whether or not it detects it. On the development server, the heap stays the same. Under Podman on
+the runner, Keycloak then started within the 750Mi limit, with a peak of 622 MiB.
+
 ### Kubernetes restarted the apps when they started slowly
 
 Found 2026-10-12 with `smoke-test.sh all --k8s` on MicroK8s, fixed 2026-10-18.
