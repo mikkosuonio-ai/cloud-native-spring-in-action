@@ -340,8 +340,15 @@ jobs:
       # kubelet evicts pods when less than 1 GiB of disk is free. Without the Paketo builders,
       # which the images job has, about 6 GB should stay free.
       - name: Install MicroK8s
+        shell: bash # runs with -o pipefail, so a failing microk8s config fails the step
         run: |
-          sudo snap install microk8s --classic --channel=1.35/stable
+          # The Snap Store sometimes doesn't answer.
+          for attempt in 1 2 3; do
+            sudo snap install microk8s --classic --channel=1.35/stable && break
+            (( attempt < 3 )) || exit 1
+            echo "::warning::snap install failed, retrying in 30 s"
+            sleep 30
+          done
           sudo microk8s status --wait-ready
           # Docker on the runner sets the FORWARD policy to DROP, which can block pod traffic;
           # microk8s inspect warns about it. This job doesn't use Docker.

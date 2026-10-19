@@ -151,8 +151,12 @@ on_exit() {
   local status=$? pid
   for pid in "${PIDS[@]}"; do kill_tree "$pid"; done
   [[ -n $PAUSED ]] && podman unpause "$PAUSED" >/dev/null
-  [[ -n ${SMOKE_JUNIT:-} && ( $CMD == test || $CMD == all ) ]] && write_junit "$status"
+  # Without its JUnit results, a passing run must not look like one.
+  if [[ -n ${SMOKE_JUNIT:-} && ( $CMD == test || $CMD == all ) ]]; then
+    write_junit "$status" || (( status )) || status=1
+  fi
   rm -rf "$WORK"
+  exit "$status"
 }
 trap on_exit EXIT
 
@@ -187,14 +191,21 @@ podman_socket() {
   fi
   mkdir -p "$(dirname "$SOCK")"
   podman system service --time=0 "unix://$SOCK" >"$WORK/podman-service.log" 2>&1 &
-  local pid=$!
+  local pid=$! end=$((SECONDS + 30))
   PIDS+=("$pid")
-  # Stops waiting when the service has exited, such as when it can't create the socket.
-  up_or_exited() { api_up || ! kill -0 "$pid" 2>/dev/null; }
-  wait_until 30 "podman system service ($SOCK)" up_or_exited && api_up && return
-  echo "No Podman API socket. podman system service:" >&2
-  cat "$WORK/podman-service.log" >&2
-  exit 1
+  # Like wait_until, but also stops waiting when the service has exited, such as when it can't
+  # create the socket.
+  printf 'Waiting for podman system service (%s) ' "$SOCK"
+  until api_up; do
+    if ! kill -0 "$pid" 2>/dev/null || (( SECONDS >= end )); then
+      echo " FAILED"
+      echo "No Podman API socket. podman system service:" >&2
+      cat "$WORK/podman-service.log" >&2
+      exit 1
+    fi
+    printf '.'; sleep 3
+  done
+  echo " ok"
 }
 
 build_image() { # service
@@ -344,6 +355,7 @@ up() {
 
   local args
   for s in "${SERVICES[@]}"; do
+    log "Starting $s"
     # edge-service fetches the issuer's OpenID configuration at startup and exits if
     # Keycloak isn't up yet; the other services only contact Keycloak on first use.
     if [[ $s == edge-service ]]; then
@@ -353,11 +365,11 @@ up() {
       wait_until 180 "config-service readiness" curl -sf "${READY_URL[config-service]}" \
         || { podman logs --tail 40 config-service; exit 1; }
     fi
-    log "Starting $s"
     mapfile -d '' args < <(run_args "$s")
     podman run -d --replace "${args[@]}" >/dev/null || exit 1
   done
 
+  log "Waiting for the services"
   for s in "${SERVICES[@]}"; do
     wait_until 180 "$s readiness" curl -sf "${READY_URL[$s]}" \
       || { podman logs --tail 40 "$s"; exit 1; }
@@ -488,6 +500,7 @@ k8s_up() {
     echo "Pushed $REGISTRY/$s@$digest"
     k apply -k "$(k8s_overlay "$s" "$digest")" >/dev/null || exit 1
   done
+  log "Waiting for the services"
   for s in "${SERVICES[@]}" "${backing[@]}"; do k8s_rollout "$s"; done
 
   k8s_urls
@@ -536,12 +549,14 @@ check() { # description expected actual [detail]
 
 # Writes the recorded checks to SMOKE_JUNIT as JUnit XML, one test case per check. A run that
 # stopped before its tests finished, such as one whose `up` failed, also gets an error case
-# named after the section it stopped in.
+# named after the section it stopped in. On a signal, such as when CI cancels the job, the exit
+# status is the last command's, which can be 0, so only TESTS_DONE tells.
 write_junit() { # exit-status
   local stopped=
-  (( $1 != 0 && ! TESTS_DONE )) && stopped=${SECTION:-start}
+  (( TESTS_DONE )) || stopped=${SECTION:-start}
   mkdir -p "$(dirname "$SMOKE_JUNIT")"
-  python3 -I - "$WORK/checks" "$SMOKE_JUNIT" "smoke-test$( (( K8S )) && echo -k8s)" "$stopped" "$1" <<'EOF'
+  python3 -I - "$WORK/checks" "$SMOKE_JUNIT" "smoke-test$( (( K8S )) && echo -k8s)" "$stopped" "$1" <<'EOF' \
+    || { echo "Could not write the JUnit results to $SMOKE_JUNIT" >&2; return 1; }
 import sys
 import xml.etree.ElementTree as ET
 checks, out, suite_name, stopped, status = sys.argv[1:]
@@ -562,7 +577,8 @@ for i in range(0, len(fields), 3):
         failures += 1
 if stopped:
     case = ET.SubElement(suite, "testcase", classname=suite_name, name=f"stopped during: {stopped}")
-    message = f"The script exited with status {status} before its tests finished"
+    message = (f"The script exited with status {status} before its tests finished" if status != "0"
+               else "The script was stopped, such as by a signal, before its tests finished")
     ET.SubElement(case, "error", message=message).text = message
     errors += 1
 for key, value in (("tests", len(suite)), ("failures", failures), ("errors", errors), ("skipped", 0)):
