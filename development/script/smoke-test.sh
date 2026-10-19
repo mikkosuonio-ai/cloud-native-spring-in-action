@@ -532,6 +532,20 @@ test_k8s() {
   done
 }
 
+# After the tests, no container has restarted during the run, such as RabbitMQ when it's
+# OOM-killed. A deployment's pods are named after it.
+test_k8s_restarts() {
+  log "Kubernetes restarts after the tests (namespace $NS)"
+  local deployments=("${SERVICES[@]}") s
+  needs_keycloak && deployments+=(polar-postgres polar-keycloak)
+  needs_rabbit && deployments+=(polar-rabbitmq)
+  BODY=$(k get pods -o json)
+  for s in "${deployments[@]}"; do
+    check "$s container restarts" 0 "$(json "sum(c['restartCount'] for p in d['items']
+      if p['metadata']['name'].startswith('$s-') for c in p['status'].get('containerStatuses', []))")"
+  done
+}
+
 # ---- test helpers -----------------------------------------------------------
 PASS=0; FAIL=0
 TESTS_DONE=0
@@ -1101,6 +1115,7 @@ run_tests() {
   has quote-function && test_quote_function
   test_metrics
   needs_observability && test_observability
+  (( K8S )) && test_k8s_restarts
 
   TESTS_DONE=1
   log "Result: $PASS passed, $FAIL failed"

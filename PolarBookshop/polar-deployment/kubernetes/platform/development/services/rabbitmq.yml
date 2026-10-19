@@ -8,10 +8,9 @@ data:
   rabbitmq.conf: |
     default_user = user
     default_pass = password
-    vm_memory_high_watermark.relative = 1.0
-  # The volume replaces /etc/rabbitmq, so the image's own list of plugins has to be repeated here.
-  enabled_plugins: |
-    [rabbitmq_management,rabbitmq_prometheus].
+    # A relative watermark is relative to the node's memory, not to the container's limit, so the
+    # kernel would OOM-kill RabbitMQ before its memory alarm could block the publishers.
+    vm_memory_high_watermark.absolute = 200MiB
 
 ---
 
@@ -39,9 +38,30 @@ spec:
               memory: 100Mi
             limits:
               cpu: 200m
-              memory: 150Mi
+              # RabbitMQ idles at about 150 MiB, and a rabbitmqctl call peaks at about 250 MiB.
+              memory: 300Mi
+          # The kernel accepts TCP connections even for a hung broker, but the management
+          # plugin's web server stops answering.
+          startupProbe:
+            tcpSocket:
+              port: 5672
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 15672
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: 5672
+            periodSeconds: 10
+          # Only rabbitmq.conf, so that the image's conf.d, which logs to the console, and its
+          # enabled_plugins stay.
           volumeMounts:
-            - mountPath: /etc/rabbitmq
+            - mountPath: /etc/rabbitmq/rabbitmq.conf
+              subPath: rabbitmq.conf
               name: rabbitmq-config-volume
       volumes:
         - name: rabbitmq-config-volume
