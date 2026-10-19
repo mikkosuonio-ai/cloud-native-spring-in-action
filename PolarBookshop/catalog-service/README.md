@@ -34,6 +34,10 @@ After building the application, you can also run it from the Java CLI:
 java -jar build/libs/catalog-service-0.0.1-SNAPSHOT.jar
 ```
 
+That starts it without the `testdata` profile, which `bootRun` and the deployments set. The
+profile deletes every book at startup and loads sample ones; add
+`--spring.profiles.active=testdata` to get them.
+
 ## Upgrade gradle wrapper
 
 Select the new wrapper version and retrieve the checksum ("Binary-only (-bin) ZIP Checksum") from https://gradle.org/release-checksums/
