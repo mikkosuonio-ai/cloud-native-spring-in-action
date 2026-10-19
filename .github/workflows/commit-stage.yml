@@ -241,9 +241,104 @@ jobs:
           path: smoke/
           retention-days: 14
 
+  # Deploys the services' own k8s/ manifests with images built from this commit to MicroK8s on
+  # the runner, as the script's --k8s mode does on the development server. --k8s supports the
+  # default selection only.
+  smoke-k8s:
+    name: Smoke test on MicroK8s
+    needs: [build-java-21, build, k8s-manifests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      # The runner's kubectl with MicroK8s' kubeconfig, set up below. Through
+      # `sudo microk8s kubectl`, the script's Keycloak port-forward would run as root, and the
+      # script couldn't stop it.
+      KUBECTL: kubectl
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Set up JDKs
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+          cache: gradle
+          cache-dependency-path: |
+            PolarBookshop/*/build.gradle
+            PolarBookshop/*/gradle/wrapper/gradle-wrapper.properties
+      - name: Install PyYAML
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q python3-yaml
+      # MicroK8s keeps its own copies of the images, in its registry and in containerd, and its
+      # kubelet evicts pods when less than 1 GiB of disk is free. The Podman jobs leave about
+      # 4.5 GB free without these copies.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          df -h /
+      - name: Install MicroK8s
+        run: |
+          sudo snap install microk8s --classic --channel=1.35/stable
+          sudo microk8s status --wait-ready
+          # Docker on the runner sets the FORWARD policy to DROP, which can block pod traffic;
+          # microk8s inspect warns about it. This job doesn't use Docker.
+          sudo iptables -P FORWARD ACCEPT
+          sudo microk8s enable dns registry
+          sudo microk8s config | install -m 600 /dev/stdin "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+      - name: Wait for the cluster DNS and registry
+        run: |
+          kubectl -n kube-system rollout status deployment/coredns --timeout=300s
+          kubectl -n container-registry rollout status deployment/registry --timeout=300s
+          curl -sSf --retry 20 --retry-delay 3 --retry-connrefused http://localhost:32000/v2/
+      - name: Show tool versions and runner resources
+        run: |
+          podman version
+          kubectl version
+          free -h
+          df -h /
+      - name: Smoke test
+        shell: bash # runs with -o pipefail, so the script's status survives tee
+        env:
+          SMOKE_JDK_17: ${{ env.JAVA_HOME_17_X64 }}
+          SMOKE_JDK_21: ${{ env.JAVA_HOME_21_X64 }}
+          SMOKE_JUNIT: ${{ github.workspace }}/smoke/test-results/test/TEST-smoke-k8s.xml
+        run: |
+          mkdir -p smoke
+          bash development/script/smoke-test.sh all --k8s --rebuild 2>&1 | tee smoke/output.txt
+      - name: Collect the namespace's state and logs
+        if: ${{ !success() }}
+        run: bash development/script/smoke-test.sh logs smoke/logs --k8s
+      - name: Show disk use
+        if: ${{ always() }}
+        run: |
+          df -h /
+          podman system df
+          # containerd's images and the registry's storage
+          sudo du -sh /var/snap/microk8s/common/var/lib/containerd \
+            /var/snap/microk8s/common/default-storage || true
+      - name: Prepare smoke test reports
+        if: ${{ always() }}
+        run: |
+          mkdir -p smoke
+          echo "Smoke test on MicroK8s" > smoke/project.txt
+      - name: Upload smoke test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports-smoke-k8s
+          path: smoke/
+          retention-days: 14
+
   reports:
     name: Test and coverage reports
-    needs: [build-java-21, build, smoke-podman]
+    needs: [build-java-21, build, smoke-podman, smoke-k8s]
     # Also after failed builds: the summary shows what failed.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04

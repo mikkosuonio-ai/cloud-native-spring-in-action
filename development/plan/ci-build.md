@@ -298,16 +298,24 @@ push.
 Changes:
 - Add a `smoke-k8s` job on `ubuntu-24.04` with a timeout. It `needs` the build jobs and
   `k8s-manifests`, and runs in parallel with `smoke-podman` on its own runner.
-- Setup as in step 5, plus MicroK8s from the channel the development server uses:
+- Setup as in step 5, without podman-compose, plus MicroK8s from the channel the development
+  server uses:
   ```bash
   sudo snap install microk8s --classic --channel=1.35/stable
   sudo microk8s status --wait-ready
+  sudo iptables -P FORWARD ACCEPT
   sudo microk8s enable dns registry
   ```
-  Then wait until the registry answers at `http://localhost:32000/v2/`.
-- Run `development/script/smoke-test.sh all --k8s --rebuild` with
-  `KUBECTL="sudo microk8s kubectl"`. The script already reads `KUBECTL`, and with sudo the runner
-  user doesn't need to join the `microk8s` group and log in again.
+  Then wait for the CoreDNS and registry rollouts, and until the registry answers at
+  `http://localhost:32000/v2/`.
+- Free disk space first, by removing the Android SDK, .NET and the Haskell tools that come with
+  the runner. MicroK8s keeps its own copies of the images, in its registry and in containerd,
+  which would take most of the 4.5 GB the Podman jobs leave free. Its kubelet evicts pods when
+  less than 1 GiB is free.
+- Run `development/script/smoke-test.sh all --k8s --rebuild` with the runner's kubectl
+  (`KUBECTL=kubectl`) and the kubeconfig from `sudo microk8s config`. The script already reads
+  `KUBECTL`. With `sudo microk8s kubectl`, the script's Keycloak port-forward would run as root,
+  and the script couldn't stop it at exit.
 - On failure, upload the output of `smoke-test.sh logs --k8s`.
 
 **Done when:** the job is green, with no restarts, on a branch push.
@@ -316,8 +324,9 @@ Risks:
 - Reaching ClusterIPs from the host and the Keycloak port-forward work on the development server,
   where MicroK8s also runs directly on the host, so they should work on the runner too.
 - The runner also runs Docker, which sets the iptables `FORWARD` policy to `DROP`;
-  `microk8s inspect` warns about this. If pods can't reach each other or the cluster DNS, run
-  `sudo iptables -P FORWARD ACCEPT` before deploying.
+  `microk8s inspect` warns about this, because it can block traffic between pods. The job
+  doesn't use Docker, so it sets the policy to `ACCEPT` before enabling the addons.
+- The disk, even after the cleanup: record the free space after the run.
 - The snap install and the addons add a few minutes.
 
 If MicroK8s turns out to be unreliable or slow on the runner, kind is the fallback. It is
