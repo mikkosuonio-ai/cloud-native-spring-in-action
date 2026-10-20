@@ -20,6 +20,11 @@
 # service is given. --k8s deploys the services' k8s/ manifests to the namespace polar-smoke
 # instead; it supports catalog, order, dispatcher and config.
 #
+# Worktrees share the stack: the container names, ports, image tags and namespace are the same
+# for all of them. So runs take turns, each waiting until the one before it has finished. The
+# stack belongs to the worktree whose up or all started it: test and logs refuse another
+# worktree's stack, and down leaves it running. up also rebuilds an image another worktree built.
+#
 # Environment:
 #   SMOKE_JDK_17, SMOKE_JDK_21  JDKs the image builds run on (default: the sdkman installations)
 #   SMOKE_JUNIT=FILE            test and all also write each check to FILE as JUnit XML
@@ -177,6 +182,46 @@ wait_until() { # timeout-seconds description command...
   echo " ok"
 }
 
+# ---- one stack per machine ----------------------------------------------------
+# Podman's storage is per user, and so is this state.
+STATE=${XDG_STATE_HOME:-$HOME/.local/state}/polar-smoke-test
+# A process of its own holds the lock, so that containers and other processes a run leaves
+# behind don't keep it. That process ends at most a second after the script.
+take_lock() {
+  local reply start=$SECONDS
+  mkdir -p "$STATE/images" || exit 2
+  exec {LOCK}< <(flock -o "$STATE/lock" bash -c 'echo locked; exec tail --pid="$1" -f /dev/null' _ "$$")
+  read -r -t 2 -u "$LOCK" reply
+  if (( $? > 128 )); then
+    log "Waiting for the smoke test lock"
+    echo "Held by $(cat "$STATE/holder" 2>/dev/null || echo 'a run that did not record itself')"
+    read -r -u "$LOCK" reply && echo "Lock taken after $((SECONDS - start)) s"
+  fi
+  [[ $reply == locked ]] || { echo "Could not take the lock $STATE/lock" >&2; exit 2; }
+  echo "$ROOT (process $$): $CMD ${SELECTED[*]}$( (( K8S )) && echo ' --k8s'), since $(date '+%F %T')" \
+    > "$STATE/holder"
+}
+
+# The worktree whose up or all started the stack (with --k8s, the namespace).
+OWNER=$STATE/stack$( (( K8S )) && echo -k8s)
+check_owner() {
+  local owner; owner=$(cat "$OWNER" 2>/dev/null)
+  [[ -z $owner || $owner == "$ROOT" ]] && return
+  case $CMD in
+    up|all) echo "Taking over the stack started from $owner" ;;
+    test|logs) echo "The stack was started from $owner. Run all to start this worktree's stack." >&2; exit 2 ;;
+    # A removed worktree no longer owns its stack.
+    down) [[ -d $owner ]] && { echo "The stack was started from $owner, so it's left running. Run down there to remove it."; exit 0; } ;;
+  esac
+}
+
+# Prints the other worktree that built the service's current image, if another one did.
+built_elsewhere() { # service
+  local id root
+  read -r id root 2>/dev/null <"$STATE/images/$1" || return 1
+  [[ $id == "$(podman image inspect -f '{{.Id}}' "$1" 2>/dev/null)" && $root != "$ROOT" ]] && echo "$root"
+}
+
 # bootBuildImage talks to Podman's Docker-compatible API socket. On the development server,
 # systemd starts it on demand. Without a systemd user session, as on CI runners, Podman serves
 # it itself for as long as the script runs.
@@ -239,6 +284,7 @@ EOF
   JAVA_HOME=$jdk "$PB/$1/gradlew" --no-daemon -q -p "$PB/$1" -I "$WORK/podman.init.gradle" "${props[@]}" bootBuildImage \
     > "$WORK/build.log" 2>&1 || { tail -40 "$WORK/build.log"; echo "$1 image build FAILED" >&2; exit 1; }
   echo "Image built"
+  echo "$(podman image inspect -f '{{.Id}}' "$1") $ROOT" > "$STATE/images/$1"
 }
 
 # Prints NUL-separated `podman run` arguments for a compose service. The compose definitions
@@ -292,10 +338,13 @@ check_memory() {
 }
 
 build_images() {
-  local s
+  local s other
   for s in "${SERVICES[@]}"; do
     [[ -d $PB/$s ]] || continue   # prebuilt image (polar-ui); podman run pulls it
     if (( REBUILD )) || ! podman image exists "$s"; then
+      build_image "$s"
+    elif other=$(built_elsewhere "$s"); then
+      echo "The $s image was built from $other; rebuilding it from this worktree"
       build_image "$s"
     else
       echo "Using existing $s image (pass --rebuild to rebuild)"
@@ -1173,11 +1222,13 @@ if (( K8S )); then
   down() { k8s_down; }
   logs() { k8s_logs; }
 fi
+take_lock
+check_owner
 case $CMD in
   build) REBUILD=1; build_images ;;
-  up)   up ;;
+  up)   echo "$ROOT" > "$OWNER"; up ;;
   test) run_tests ;;
-  down) down ;;
-  all)  up && run_tests ;;
+  down) down && rm -f "$OWNER" ;;
+  all)  echo "$ROOT" > "$OWNER"; up && run_tests ;;
   logs) logs ;;
 esac

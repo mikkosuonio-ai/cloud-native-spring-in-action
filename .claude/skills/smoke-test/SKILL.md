@@ -45,7 +45,9 @@ doesn't fit in memory. `order dispatcher observability` covers the whole order f
 `all edge`.
 
 Pass `--rebuild` when the user wants to test the current code in the worktree. Without it, the
-script reuses existing images, which may have been built from another worktree or an older commit.
+script reuses an existing image, which may be from an older commit. It rebuilds an image that it
+built from another worktree, but not one it didn't build, such as one built with `bootBuildImage`
+by hand.
 
 CI runs the same script. It builds each image once with `build`, in a job of its own, and the
 smoke test jobs run without `--rebuild` on those images. Three environment variables are for CI,
@@ -54,6 +56,20 @@ and for machines set up differently from this one:
 - `SMOKE_JUNIT=<file>` makes `test` and `all` also write every check to the file as a JUnit test
   case. A run that stops before its tests finish, such as one whose `up` fails, gets an error
   case named after the step it stopped in.
+
+## Other worktrees
+
+Every worktree's runs share one stack: the container names, ports, network, image tags and the
+`polar-smoke` namespace are the same. So:
+- Runs take turns. A run that finds another one running says which worktree and command hold the
+  lock, and waits until that run has finished. The wait counts towards a foreground Bash call's
+  10-minute limit, so run in the background when another session may be running smoke tests.
+- The stack belongs to the worktree whose `up` or `all` started it. Another worktree's `up` or
+  `all` takes it over, and then `test` and `logs` refuse to run against it: rerun `all`. `down`
+  leaves another worktree's stack running, unless that worktree has been removed.
+- An image another worktree built is rebuilt, so that a run doesn't test another worktree's code.
+
+The lock and the records are in `~/.local/state/polar-smoke-test/`.
 
 ## Steps
 
