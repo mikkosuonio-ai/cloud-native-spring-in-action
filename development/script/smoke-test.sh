@@ -323,6 +323,27 @@ sys.stdout.write("\0".join(args) + "\0")
 EOF
 }
 
+# netavark before 1.9 (Ubuntu 24.04 has 1.4) leaves the network bridge's MAC address to the
+# kernel, which gives the bridge the lowest MAC of its ports. A container that starts with a lower
+# one changes it, and the containers started before it keep sending to the old one: their DNS
+# lookups and their connections through the gateway, such as to host.docker.internal, get no
+# answer until their ARP entries expire, for up to a minute. A MAC that has been set, even to the
+# one the bridge has, stays.
+BRIDGE_PINNED=0
+pin_bridge_mac() {
+  local bridge mac
+  (( BRIDGE_PINNED )) && return
+  bridge=$(podman network inspect -f '{{.NetworkInterface}}' "$NET" 2>/dev/null) || return
+  # Empty until a container joins the network, and for rootful Podman.
+  mac=$(podman unshare --rootless-netns ip -br link show dev "$bridge" 2>/dev/null | awk '{print $3}')
+  [[ -n $mac ]] || return
+  if podman unshare --rootless-netns ip link set dev "$bridge" address "$mac"; then
+    BRIDGE_PINNED=1
+  else
+    echo "WARNING: could not pin the MAC address of $bridge" >&2
+  fi
+}
+
 check_memory() {
   # Rough figures seen in practice: keycloak+postgres ~1 GB, each Spring app ~350 MB,
   # rabbitmq ~100 MB, polar-ui + redis ~100 MB.
@@ -393,8 +414,13 @@ up() {
   # Guard: `podman-compose up` with no service names starts every service in the file.
   if (( ${#backing[@]} )); then
     log "Starting ${backing[*]}"
+    # The first service on its own, so that the bridge's MAC is set before the others join.
     # podman-compose exits 0 even when a container fails to start, so check each one.
-    podman-compose -f "$COMPOSE" up -d "${backing[@]}" >"$WORK/compose.log" 2>&1
+    podman-compose -f "$COMPOSE" up -d "${backing[0]}" >"$WORK/compose.log" 2>&1
+    pin_bridge_mac
+    if (( ${#backing[@]} > 1 )); then
+      podman-compose -f "$COMPOSE" up -d "${backing[@]:1}" >>"$WORK/compose.log" 2>&1
+    fi
     for s in "${backing[@]}"; do
       [[ $(podman inspect -f '{{.State.Running}}' "$s" 2>/dev/null) == true ]] \
         || { grep -i error "$WORK/compose.log"; echo "$s is not running" >&2; exit 1; }
@@ -416,6 +442,7 @@ up() {
     fi
     mapfile -d '' args < <(run_args "$s")
     podman run -d --replace "${args[@]}" >/dev/null || exit 1
+    pin_bridge_mac   # the bridge only exists once a container has joined the network
   done
 
   log "Waiting for the services"

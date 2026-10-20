@@ -123,6 +123,13 @@ The lock and the records are in `~/.local/state/polar-smoke-test/`.
   If none are needed it skips compose entirely, because `podman-compose up` with no service names
   starts every service in the file. Otherwise it checks that each container is running, because
   podman-compose exits 0 even when a container fails to start.
+- Sets the MAC address of the network's bridge, to the one it has, as soon as the first container
+  has joined the network. It starts the first backing service on its own for this. netavark
+  before 1.9 (this server and the CI runners have 1.4) leaves the bridge's MAC to the kernel,
+  which gives the bridge the lowest MAC of its ports, so it can change when a container starts.
+  The containers started before then send to the old MAC, and their DNS lookups and connections
+  through the gateway, such as to `host.docker.internal`, get no answer for up to a minute. In CI
+  this failed about one edge job in five (review finding 34).
 - Starts quote-service (port 9101) and quote-function (port 9102) with `podman run`. Neither is
   in the compose file.
 - Starts the app services and polar-ui with `podman run` on the `docker_default` network. It
