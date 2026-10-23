@@ -269,6 +269,12 @@ How the tests check the browser:
 - **Outages are undone.** `withPaused` and `withCatalogDatabaseClosed` undo their change in a
   `finally`, and note the undo command in `UI_UNDO_FILE` meanwhile. The smoke script will use
   that file in step 3.
+- **The tests' books are removed.** Their ISBNs start with 97, and a fixture deletes every such
+  book from catalog's database before and after each test. A test that fails before removing
+  its book, or a killed run, leaves nothing for the next test or run, and ISBNs can't collide
+  with leftovers. It deletes in PostgreSQL rather than through the API, because by the end a
+  test may have logged out or broken catalog-service. A test that added a book and then failed
+  left none behind, and neither did a run after a planted leftover.
 
 ## Step 3: Run them from the smoke script
 

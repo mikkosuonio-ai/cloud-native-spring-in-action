@@ -30,6 +30,9 @@ export function failedCall(method: string, path: string, status: number): RegExp
 
 type Problems = { allow(...patterns: RegExp[]): void };
 
+// Every book the tests create has an ISBN with this prefix; the curl smoke tests use 98 and 99.
+const OWN_ISBNS = '97';
+
 // Google Fonts: index.html links its stylesheets, and the build has inlined their @font-face
 // rules, so the page also fetches the fonts themselves. The tests block both, so that they
 // don't depend on Google; the icons then show their ligature names, and the text a fallback
@@ -38,7 +41,7 @@ const FONTS = /^https:\/\/fonts\.(googleapis|gstatic)\.com\//;
 
 // Every test fails on a browser problem it doesn't expect: a response of 400 or more, a failed
 // request, an uncaught page error, or a console error.
-export const test = base.extend<{ problems: Problems }>({
+export const test = base.extend<{ problems: Problems; ownBooks: void }>({
   problems: [async ({ page }, use) => {
     const seen: string[] = [];
     const allowed = [...ANONYMOUS_USER, new RegExp(`^(request failed GET |console: .*\\[)${FONTS.source.slice(1)}`)];
@@ -73,11 +76,30 @@ export const test = base.extend<{ problems: Problems }>({
     const unexpected = seen.filter(p => !allowed.some(a => a.test(p)));
     expect(unexpected, 'browser problems the test does not expect').toEqual([]);
   }, { auto: true }],
+
+  // Every test starts and ends without the tests' books, also when it fails before removing its
+  // own, or an earlier run was killed. The tests run one at a time, so no other test's books go.
+  ownBooks: [async ({}, use) => {
+    removeOwnBooks();
+    await use();
+    removeOwnBooks();
+  }, { auto: true }],
 });
 
-// A 10-digit ISBN that no other run uses; the edge smoke test's start with 98.
+// A 10-digit ISBN that no other book in the catalog has.
 export function uniqueIsbn(): string {
-  return '97' + String(Date.now()).slice(-8);
+  return OWN_ISBNS + String(Date.now()).slice(-8);
+}
+
+// The podman arguments that run STATEMENT in polar-postgres, on DATABASE, as its superuser.
+function psql(database: string, statement: string): string[] {
+  return ['exec', 'polar-postgres', 'psql', '-U', 'user', '-d', database, '-v', 'ON_ERROR_STOP=1', '-c', statement];
+}
+
+// Deletes the tests' books from catalog-service's database directly: a test may have logged
+// out, or broken catalog-service, by the time it ends.
+function removeOwnBooks() {
+  execFileSync('podman', psql('polardb_catalog', `DELETE FROM book WHERE isbn LIKE '${OWN_ISBNS}%'`), { stdio: 'pipe' });
 }
 
 // Logs USERNAME in as a user would: "Log In", Keycloak's form, and back to the SPA.
@@ -152,10 +174,9 @@ export function withPaused(container: string, fn: () => Promise<void>) {
 // after its 2 s connection timeout. Stopping polar-postgres would do that too, but order-service
 // then answers the first orders after the restart with 500 (review finding 36).
 export function withCatalogDatabaseClosed(fn: () => Promise<void>) {
-  const sql = (statement: string) => ['exec', 'polar-postgres', 'psql', '-U', 'user', '-d', 'postgres', '-c', statement];
   return withPodman(
-    sql("ALTER DATABASE polardb_catalog ALLOW_CONNECTIONS false; "
+    psql('postgres', "ALTER DATABASE polardb_catalog ALLOW_CONNECTIONS false; "
       + "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'polardb_catalog'"),
-    sql('ALTER DATABASE polardb_catalog ALLOW_CONNECTIONS true'),
+    psql('postgres', 'ALTER DATABASE polardb_catalog ALLOW_CONNECTIONS true'),
     fn);
 }
