@@ -116,6 +116,23 @@ browser with this setup, and what it costs in memory.
 
 **Done when:** the result is written down here: works / works with flag X / doesn't work.
 
+Result (2026-10-23): **it didn't work, and now works after a change to the stack** (review
+finding 35).
+- Headless Chromium 153 (Playwright 1.63.0) reached Keycloak's form through the host resolver
+  rule, but the login ended on "Cookie not found" (400). Keycloak 24 marked all its
+  login-session cookies `Secure`, because the realm's `sslRequired: external` counts the host
+  name `host.docker.internal` as external. `--unsafely-treat-insecure-origin-as-secure` didn't
+  help.
+- With `sslRequired: none` in the compose realm, the login worked and the page showed
+  "Log Out".
+- No browser could have logged in before. The curl checks passed only because `edge_login`
+  passes the cookies on by hand.
+- Memory: the whole `all edge` stack used 2.98 GiB of 3.7 GiB (Keycloak 920 MiB, each Spring
+  app 300–330 MiB), and the browser added 290 MiB (PSS over its processes). 767 MiB stayed
+  available, with MicroK8s stopped and no other session running.
+- Seen on the way: the anonymous `GET /user` 401 also logs an Angular `ERROR` to the console,
+  since `AppComponent` subscribes to it without an error handler. The tests have to expect it.
+
 ## Step 1: Check the SPA's files with curl
 
 **Goal:** the smoke test catches a gateway route or a build that stops serving the app's files.

@@ -24,6 +24,21 @@ update. The send also still blocks the R2DBC thread until the connection timeout
 
 ## Resolved
 
+### A browser couldn't log in through the compose setup
+
+Found and fixed 2026-10-23 with a headless browser against `smoke-test.sh all edge`
+(`development/plan/review-2026-10-19.md`, finding 35).
+
+**Symptom:** after "Log In" and the credentials, Keycloak answered 400 with "Cookie not found.
+Please make sure cookies are enabled in your browser." The curl-based smoke checks passed.
+
+**Cause:** the realm's `sslRequired: external`. Keycloak 24 counts a request for
+`host.docker.internal`, the issuer's host, as external, and over http it then marks its
+login-session cookies `Secure`, which browsers drop on an http origin other than localhost.
+
+**Fix:** `sslRequired: none` in `polar-deployment/docker/keycloak/full-realm-config.json`, as the
+production realm has. The Kubernetes development realm still has `external`.
+
 ### Keycloak ran out of memory on Kubernetes on GitHub's runners
 
 Found and fixed 2026-10-19 with the `smoke-k8s` CI job, which runs `smoke-test.sh all --k8s` on
