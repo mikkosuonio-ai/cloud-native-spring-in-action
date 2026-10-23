@@ -1,0 +1,11 @@
+{
+  "name": "polar-ui-test",
+  "private": true,
+  "description": "Browser tests of polar-ui against a running PolarBookshop stack; run by development/script/smoke-test.sh",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

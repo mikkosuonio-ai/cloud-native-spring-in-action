@@ -47,17 +47,17 @@ From reading polar-ui's source, the parts that can break between the services an
 | What | Where | Why curl misses it |
 |---|---|---|
 | The app's files load through edge-service | `spa-route` only matches `/`, `/*.css`, `/*.js`, `/favicon.ico` | curl only fetches `/`. A build that emits files in a subdirectory, or another extension, gets 401 (the path isn't permitted) |
-| Login works in a real browser | Keycloak 24 marks its login-session cookies `Secure`, over plain http, on `host.docker.internal` | curl stores them by hand (see `edge_login`). Browsers refuse `Secure` cookies from an insecure origin other than localhost, and Keycloak 24 no longer sends the `_LEGACY` fallback cookies. **Login in a browser may not work at all; see step 0** |
+| Login works in a real browser | Keycloak 24 marks its login-session cookies `Secure`, over plain http, on `host.docker.internal` | curl stores them by hand (see `edge_login`). Browsers refuse `Secure` cookies from an insecure origin other than localhost, and Keycloak 24 no longer sends the `_LEGACY` fallback cookies. **Step 0 confirmed it: no browser could log in (finding 35, fixed)** |
 | Angular's own CSRF handling | `HttpClientModule`'s XSRF interceptor; the logout `<form>` posting `_csrf` from the cookie | The smoke test sends the header itself. Spring Security 6 (with Boot 3) masks CSRF tokens by default, which breaks SPAs that send the raw cookie value. The update needs this guarded |
 | The 401 handling | `HttpInterceptorImpl`: a 401 on anything but `/user` sends the browser to `/oauth2/authorization/keycloak` | Finding 1's deferred check. Before its fix, a catalog outage would send the user to the login page |
 | Role-dependent UI | "Add Book" for `employee`, "My Orders" when logged in | The `/user` response is checked, not what the UI makes of it |
 | Hash routes and deep links | `useHash: true`, so `/#/my-orders` | n/a |
-| Error and fallback states | `GET /books` fallback body `""` (finding 32) | Angular parses an empty JSON body as `null`, so `books` becomes `null` and the book list shows only a spinner. Unverified |
+| Error and fallback states | `GET /books` fallback body `""` (finding 32) | Angular parses an empty JSON body as `null`, so `books` becomes `null` and the book list shows only a spinner. Confirmed by step 2 |
 
 Likely bugs, found by reading the code and to be confirmed by the tests:
 - **Remove doesn't update the list.** `removeBook` deletes and then navigates to
   `/browse-books`, the page it's on. Angular ignores navigation to the current URL by default, so
-  the removed book stays on screen until a reload.
+  the removed book stays on screen until a reload. Confirmed by step 2: review finding 37.
 - **The spinner never shows while loading**, since `books` starts as `[]`, not `undefined`.
 - **The order total is formatted with `toPrecision(4)`:** 7.5 shows as `7.500`, and totals of
   10000 or more in exponent notation.
@@ -217,6 +217,58 @@ Tests 6 and 7 pause containers, so they run last, in their own `describe` with `
 **Done when:** all pass locally, or fail only on bugs that are recorded as findings in the
 review plan (or a new one), with the test marked `test.fail()` and a link to the finding until
 it's fixed.
+
+Result (2026-10-23): done. Ten tests in `development/ui-test/` (Playwright 1.63.0, its
+Chromium headless shell). They passed in three full runs against `smoke-test.sh all edge`, in
+about 50 s each. Two of them are expected failures, each failing for its finding's reason. The
+curl smoke checks passed afterwards (89).
+
+| File | Tests |
+|---|---|
+| `01-anonymous` | "Log In" and only "Browse Books" in the menu; the catalog's cards with their details |
+| `02-employee` | isabelle adds, edits and removes a book through the forms and the card menu (201, 200, 204, CSRF by Angular itself); **expected failure:** the list drops a removed book (finding 37) |
+| `03-customer` | bjorn orders 2 copies in the dialog and finds the order in "My Orders", with its status and total |
+| `04-session` | "Log Out" goes through Keycloak's logout and ends both sessions; a 401 from `GET /orders` sends an anonymous visitor to Keycloak's login page |
+| `05-outages` | a catalog 500 on "Create Book" leaves the employee logged in (finding 1); the fallback answers without books while catalog-service is paused; **expected failure:** the list shows an empty list then, not a spinner (finding 32) |
+
+How it differs from the list above:
+- **Test 6 closes catalog-service's database** (`ALTER DATABASE ... ALLOW_CONNECTIONS false`,
+  plus ending its sessions) instead of pausing `polar-postgres`.
+  - Pausing gives no 500: catalog's queries hang, and edge-service's time limit serves the
+    fallback.
+  - Stopping PostgreSQL gives catalog's 500, but order-service then fails its first orders
+    after the restart (new finding 36).
+  - A GET never shows the 500 in the browser either way: edge-service's Retry filter repeats it
+    until the fallback. So the test uses a write, "Create Book".
+- **Test 7 is two tests:**
+  - a plain one that checks the fallback happens;
+  - the expected failure for what the page shows, which only fails for its finding's reason.
+
+  The page has to be checked after the fallback's response: until then `books` is `[]` and
+  the empty list shows.
+- **The anonymous 401 test opens `#/my-orders`** rather than ordering: the same interceptor
+  path, with fewer steps.
+
+What the browser tests found:
+- The login (finding 35, step 0).
+- **Removing a book doesn't update the list** (new finding 37). It's in polar-ui, so it waits
+  for step 5.
+- **Finding 32's effect in the SPA:** the spinner stays for good.
+- **The anonymous `GET /user` also logs an Angular `ERROR`.** It's allowed, as are the 401's
+  own console line and response.
+- **The build inlines Google's font CSS into index.html,** so the page also fetches from
+  `fonts.gstatic.com`. The tests block both font hosts and ignore those requests.
+
+How the tests check the browser:
+- **Unexpected problems fail a test.** A fixture fails each test on any response ≥ 400, failed
+  request, page error or console error that the test doesn't expect. The tests declare
+  expected failures with `problems.allow(...failedCall(method, path, status))`.
+- **Angular's error log is made readable.** An init script turns each `HttpErrorResponse` that
+  Angular logs into its status and URL, so that the log can be matched. Reading the object
+  afterwards fails when the page has navigated away, as on the 401 redirect.
+- **Outages are undone.** `withPaused` and `withCatalogDatabaseClosed` undo their change in a
+  `finally`, and note the undo command in `UI_UNDO_FILE` meanwhile. The smoke script will use
+  that file in step 3.
 
 ## Step 3: Run them from the smoke script
 
