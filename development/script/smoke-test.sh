@@ -922,6 +922,43 @@ print(html.unescape(action.group(1)) if action else "")' "$WORK/kc-login.html")
   [[ $url == "$EDGE/" ]]
 }
 
+# Prints the paths of the scripts, stylesheets and icon that the SPA page in FILE references on
+# its own origin, one per line.
+spa_files() { # file
+  python3 -I - "$1" <<'EOF'
+import sys
+from html.parser import HTMLParser
+refs = []
+class Page(HTMLParser):
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "script" and a.get("src"):
+            refs.append(a["src"])
+        elif tag == "link" and a.get("rel") in ("stylesheet", "icon") and a.get("href"):
+            refs.append(a["href"])
+Page().feed(open(sys.argv[1], encoding="utf-8", errors="replace").read())
+for ref in dict.fromkeys(refs):
+    if "//" not in ref:   # the page's <base href> is "/"
+        print("/" + ref.lstrip("/"))
+EOF
+}
+
+# Fetches each of the SPA's files through edge-service anonymously, as a browser loading the page
+# does, and prints the ones that don't come back with 200 and the content type of their kind.
+spa_files_failing() { # file listing the paths
+  local path got type
+  while read -r path; do
+    case $path in
+      *.js)  type=javascript ;;
+      *.css) type=text/css ;;
+      *.ico) type=image/ ;;
+      *)     type= ;;
+    esac
+    got=$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "$EDGE$path")
+    [[ $got == "200 "*"$type"* ]] || printf '%s: %s; ' "$path" "$got"
+  done <"$1"
+}
+
 test_edge() {
   local anon=$WORK/anon.jar ij=$WORK/isabelle.jar bj=$WORK/bjorn.jar
   local isbn="98$(date +%s | tail -c 9)"
@@ -937,6 +974,12 @@ test_edge() {
 
   edge GET / "$anon";                       check "GET / (polar-ui via spa-route)"    200 "$CODE"
   check "SPA page is HTML"                  True "$(grep -qi '<html' "$WORK/body" && echo True)"
+  spa_files "$WORK/body" >"$WORK/spa-files"
+  check "SPA page references scripts and CSS" True \
+    "$(grep -q '\.js$' "$WORK/spa-files" && grep -q '\.css$' "$WORK/spa-files" && echo True)" \
+    "$(paste -sd ' ' "$WORK/spa-files")"
+  local failing; failing=$(spa_files_failing "$WORK/spa-files")
+  check "SPA's files served through edge"   True "$([[ -z $failing ]] && echo True)" "$failing"
   edge GET /books "$anon";                  check "GET /books anonymously"            200 "$CODE"
   check "books returned from catalog"       True "$(json 'len(d) >= 2')"
   check "rate limiter header present"       True "$(grep -qi '^X-RateLimit-Remaining:' "$WORK/headers" && echo True)"

@@ -166,10 +166,16 @@ The lock and the records are in `~/.local/state/polar-smoke-test/`.
   3. the credentials POST;
   4. the redirect back to `/login/oauth2/code/keycloak`.
 
-  Keycloak marks its login-session cookies `Secure`, and curl won't store those when they come
-  over plain HTTP from a host other than localhost. The script therefore copies them from the
-  login page's `Set-Cookie` headers into the POST by hand. Requests that change state send the
-  `XSRF-TOKEN` cookie back as `X-XSRF-TOKEN`.
+  Keycloak marks its `AUTH_SESSION_ID` cookie `Secure` (with `sslRequired: external`, which the
+  compose realm had until review finding 35, all its login-session cookies), and curl won't
+  store those when they come over plain HTTP from a host other than localhost. The script
+  therefore copies them from the login page's `Set-Cookie` headers into the POST by hand.
+  Browsers drop them, so a browser logs in only with the realm's `sslRequired: none`. Requests
+  that change state send the `XSRF-TOKEN` cookie back as `X-XSRF-TOKEN`.
+- Reads the scripts, stylesheets and icon that polar-ui's page references, and fetches each
+  through edge-service anonymously, as a browser loading the page does: each must answer 200
+  with the content type of its kind. The file names carry content hashes, so the checks are
+  named after the kinds, and a failure lists the files.
 - Tests config-service against https://github.com/PolarBookshop/config-repo, which it clones at
   startup (so it needs network access), not the local `PolarBookshop/config-repo/` directory. The
   two differ in `catalog-service.yml`'s greeting, so the tests check structure rather than exact

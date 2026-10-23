@@ -147,6 +147,18 @@ No new tooling, so it can go in before the browser tests.
 **Done when:** `smoke-test.sh all edge` passes locally with the new checks, and fails when the
 `spa-route` predicate is narrowed by hand.
 
+Result (2026-10-23): done.
+- Two checks in `test_edge`:
+  - "SPA page references scripts and CSS" (at least one of each);
+  - "SPA's files served through edge", whose failure lists each file with its status and
+    content type.
+
+  The page of the `v1` image references three scripts, a stylesheet and the favicon.
+- `all edge` passed with 89 checks.
+- With edge-service restarted with `spa-route` narrowed to `Path=/,/favicon.ico` (through
+  `SPRING_CLOUD_GATEWAY_ROUTES_0_*`, which also drops the other routes), the two old SPA checks
+  still passed, and the new one failed with the four files at 404.
+
 ## Step 2: Browser tests
 
 **Goal:** the user flows of polar-ui are tested in a real browser against the running stack.
