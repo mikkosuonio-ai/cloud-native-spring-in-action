@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 # Smoke test for PolarBookshop services running under Podman, or on MicroK8s with --k8s.
 #
-# Usage: smoke-test.sh up|test|down|all|build [catalog] [order] [dispatcher] [config] [edge]
+# Usage: smoke-test.sh up|test|down|all|build [catalog] [order] [dispatcher] [config] [edge] [ui]
 #                      [quote] [quote-function] [observability] [--rebuild] [--k8s]
 #        smoke-test.sh logs DIR [--k8s]
 #   build   build the images of the given services, always, and not of the services they need
 #   up      build missing images (or all selected with --rebuild), start backing services + apps
-#   test    run the HTTP smoke tests against the running stack
+#   test    run the smoke tests (with ui, also the browser tests) against the running stack
 #   down    remove the app containers and the compose backing services (--k8s: the namespace)
 #   all     up + test; leaves the stack running
-#   logs    write the containers' state and logs to DIR (--k8s: the namespace's resources,
-#           events and deployment logs), for example after a failed run
+#   logs    write the containers' state and logs, and the browser tests' traces and screenshots,
+#           to DIR (--k8s: the namespace's resources, events and deployment logs), for example
+#           after a failed run
 #   help    print this text, as does a call without a command
 #
 # Services default to "catalog order dispatcher config"; edge, quote and quote-function must
 # be asked for, since the whole set doesn't fit in this machine's memory. order needs catalog,
-# and edge needs catalog, order and polar-ui; those are added automatically. observability adds
+# and edge needs catalog, order and polar-ui; those are added automatically. ui runs the browser
+# tests of polar-ui in development/ui-test after edge's checks, and adds edge; it needs Node.js
+# and npm, and the headless browser takes about 300 MB more. observability adds
 # Prometheus, Tempo and Grafana and exports traces, on top of the default services if no other
 # service is given. --k8s deploys the services' k8s/ manifests to the namespace polar-smoke
 # instead; it supports catalog, order, dispatcher and config.
@@ -45,7 +48,7 @@ while (( $# )); do
     help|-h|--help)          usage; exit 0 ;;
     --rebuild)               REBUILD=1 ;;
     --k8s)                   K8S=1 ;;
-    catalog|order|dispatcher|config|edge|quote|quote-function|observability) SELECTED+=("$1") ;;
+    catalog|order|dispatcher|config|edge|ui|quote|quote-function|observability) SELECTED+=("$1") ;;
     *) usage; exit 2 ;;
   esac
   shift
@@ -55,8 +58,9 @@ done
 [[ " ${SELECTED[*]} " == *[a-z]* && " ${SELECTED[*]} " != " observability " ]] \
   || SELECTED+=(catalog order dispatcher config)
 selected() { [[ " ${SELECTED[*]} " == *" $1 "* ]]; }
+selected ui && ! selected edge && SELECTED+=(edge)
 if (( K8S )); then
-  for a in edge quote quote-function observability; do
+  for a in edge ui quote quote-function observability; do
     selected $a && { echo "$a isn't supported with --k8s yet" >&2; exit 2; }
   done
 fi
@@ -149,6 +153,10 @@ declare -A BASE_URL=([catalog-service]=$CATALOG [order-service]=$ORDER [dispatch
 WORK=$(mktemp -d)
 PIDS=()   # background kubectl port-forwards and Podman API service
 PAUSED=   # a container test_edge has paused, until it unpauses it
+UI_TEST=$ROOT/development/ui-test
+# The browser tests note each change they make to the stack here, as the podman arguments that
+# undo it, until they have undone it themselves.
+UI_UNDO_FILE=$WORK/ui-undo
 # Kills a process and its descendants: kubectl runs under MicroK8s' wrapper scripts, which
 # would keep running without their parent.
 kill_tree() { local c; for c in $(pgrep -P "$1"); do kill_tree "$c"; done; kill "$1" 2>/dev/null; }
@@ -156,6 +164,7 @@ on_exit() {
   local status=$? pid
   for pid in "${PIDS[@]}"; do kill_tree "$pid"; done
   [[ -n $PAUSED ]] && podman unpause "$PAUSED" >/dev/null
+  ui_undo
   # Without its JUnit results, a passing run must not look like one.
   if [[ -n ${SMOKE_JUNIT:-} && ( $CMD == test || $CMD == all ) ]]; then
     write_junit "$status" || (( status )) || status=1
@@ -353,6 +362,7 @@ check_memory() {
   needs_rabbit && (( need_mb += 100 ))
   needs_redis && (( need_mb += 100 ))
   needs_observability && (( need_mb += 300 ))
+  selected ui && (( need_mb += 300 ))
   avail_mb=$(free -m | awk '/^Mem:/ {print $7}')
   echo "Available memory: ${avail_mb} MiB (stack needs about ${need_mb} MiB)"
   (( avail_mb < need_mb )) && echo "WARNING: stack may be OOM-killed. Stop other containers / Gradle daemons first."
@@ -1020,6 +1030,97 @@ test_edge() {
   check "books returned again"              True "$(json 'len(d) >= 2')"
 }
 
+# Runs the undo commands the browser tests have left in UI_UNDO_FILE, such as when they were
+# killed while catalog-service was paused.
+ui_undo() {
+  local args
+  [[ -s $UI_UNDO_FILE ]] || return 0
+  while IFS=$'\t' read -r -a args; do
+    podman "${args[@]}" >/dev/null && echo "Undid a browser test's change: podman ${args[*]}"
+  done <"$UI_UNDO_FILE"
+  rm -f "$UI_UNDO_FILE"
+}
+
+# Runs the browser tests of polar-ui (development/ui-test) through edge-service, one check per
+# test. A test marked to fail for an open finding passes as "expected failure", and fails the
+# check once it passes. The list reporter's output and the traces and screenshots of failed tests
+# stay in test-results there, for logs.
+test_ui() {
+  log "polar-ui (browser)"
+  if ! command -v npm >/dev/null; then
+    check "Node.js and npm installed"       True "" "the browser tests need them"
+    return
+  fi
+  # npm ci recreates node_modules, which is then newer than the lock file.
+  if [[ ! -d $UI_TEST/node_modules || $UI_TEST/package-lock.json -nt $UI_TEST/node_modules ]]; then
+    echo "Installing the browser tests' packages"
+    if ! npm --prefix "$UI_TEST" ci --no-audit --no-fund >"$WORK/npm.log" 2>&1; then
+      check "browser tests' packages installed" True "" "$(tail -3 "$WORK/npm.log" | paste -sd ' ')"
+      return
+    fi
+  fi
+  local playwright=$UI_TEST/node_modules/.bin/playwright
+  # Downloads the browser only when the version Playwright wants isn't cached yet.
+  if ! "$playwright" install chromium-headless-shell >"$WORK/browser.log" 2>&1; then
+    check "headless browser installed"      True "" "$(tail -3 "$WORK/browser.log" | paste -sd ' ')"
+    return
+  fi
+
+  : >"$UI_UNDO_FILE"
+  (cd "$UI_TEST" && UI_BASE_URL=$EDGE UI_TEST_JSON=$WORK/ui.json UI_UNDO_FILE=$UI_UNDO_FILE \
+    "$playwright" test >"$WORK/ui.log" 2>&1)
+  local status=$?
+  ui_undo
+  # Playwright empties its output directory when a run starts, so the log goes in afterwards.
+  mkdir -p "$UI_TEST/test-results" && cp "$WORK/ui.log" "$UI_TEST/test-results/output.log"
+
+  local name expected actual detail
+  while IFS= read -r -d '' name && IFS= read -r -d '' expected && IFS= read -r -d '' actual \
+      && IFS= read -r -d '' detail; do
+    check "$name" "$expected" "$actual" "$detail"
+  done < <(python3 -I - "$WORK/ui.json" "$status" <<'EOF'
+import sys, json, re
+report, status = sys.argv[1:]
+ansi = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+def first_line(text):
+    lines = [l.strip() for l in ansi.sub("", text or "").splitlines() if l.strip()]
+    return lines[0] if lines else ""
+def emit(*fields):
+    sys.stdout.write("".join(f.replace("\0", " ") + "\0" for f in fields))
+try:
+    with open(report, encoding="utf-8") as f:
+        d = json.load(f)
+except (OSError, ValueError):
+    # Playwright stopped before writing its report, such as when it was killed, or when its
+    # configuration didn't load.
+    emit("browser tests ran", "True", "", f"Playwright exited with status {status} without its report;"
+         " its output is in development/ui-test/test-results/output.log")
+    sys.exit()
+def specs(suite):
+    yield from suite.get("specs", [])
+    for child in suite.get("suites", []):
+        yield from specs(child)
+count = 0
+for spec in (s for suite in d.get("suites", []) for s in specs(suite)):
+    for test in spec["tests"]:
+        count += 1
+        result = (test.get("results") or [{}])[-1]
+        status, wanted = result.get("status", "not run"), test["expectedStatus"]
+        expected = {"passed": "passed", "failed": "expected failure"}.get(wanted, wanted)
+        actual = expected if status == wanted else status
+        detail = "" if status == wanted else first_line((result.get("error") or {}).get("message", ""))
+        if status == "passed" and wanted == "failed":
+            detail = "marked to fail for an open finding: if the finding is fixed, remove its test.fail"
+        emit(spec["title"], expected, actual, detail)
+# Errors outside the tests, such as a spec file that doesn't compile.
+for error in d.get("errors", []):
+    emit("browser test files load", "True", "", first_line(error.get("message", "")))
+if not count:
+    emit("browser tests found", "True", "", "no tests in the report")
+EOF
+)
+}
+
 # Collects the authors returned by N calls to URL, as a sorted, comma-separated list.
 authors_from() { # url n [json-body to POST]
   local i args=(-s)
@@ -1230,6 +1331,7 @@ run_tests() {
   has dispatcher-service && test_dispatcher
   has order-service && test_order
   has edge-service && test_edge
+  selected ui && test_ui
   has quote-service && test_quote
   has quote-function && test_quote_function
   test_metrics
@@ -1266,6 +1368,9 @@ logs() {
       "$c" >> "$dir/state.txt"
     podman logs "$c" > "$dir/$c.log" 2>&1
   done
+  if [[ -n $(ls -A "$UI_TEST/test-results" 2>/dev/null) ]]; then
+    cp -r "$UI_TEST/test-results" "$dir/ui"
+  fi
   ls "$dir"
 }
 

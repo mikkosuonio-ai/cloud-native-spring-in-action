@@ -267,8 +267,8 @@ How the tests check the browser:
   Angular logs into its status and URL, so that the log can be matched. Reading the object
   afterwards fails when the page has navigated away, as on the 401 redirect.
 - **Outages are undone.** `withPaused` and `withCatalogDatabaseClosed` undo their change in a
-  `finally`, and note the undo command in `UI_UNDO_FILE` meanwhile. The smoke script will use
-  that file in step 3.
+  `finally`, and note the undo command in `UI_UNDO_FILE` meanwhile. The smoke script runs what
+  is left in that file (step 3).
 - **The tests' books are removed.** Their ISBNs start with 97, and a fixture deletes every such
   book from catalog's database before and after each test. A test that fails before removing
   its book, or a killed run, leaves nothing for the next test or run, and ISBNs can't collide
@@ -297,6 +297,35 @@ one summary and one JUnit file.
 
 **Done when:** `smoke-test.sh all edge ui` passes locally, `SMOKE_JUNIT` has a case per browser
 test, and a deliberately broken test shows up as a FAIL with its trace in `logs`.
+
+Result (2026-10-23): done. `smoke-test.sh all ui` passes with 99 checks: edge's 89 and one per
+browser test, 10. `SMOKE_JUNIT` has the 10 as test cases of the class `polar-ui`.
+- **A test passes as "passed" or, when it's marked `test.fail` for an open finding, as "expected
+  failure".** Such a test that passes fails its check, with a reminder to remove the mark.
+- **A deliberately broken test was a FAIL** with the first line of its error
+  (`expect(locator).toBeVisible() failed`). `logs DIR` copied its trace and screenshot to
+  `DIR/ui/`.
+- **Killing Playwright with SIGKILL** while catalog-service was paused, and again while catalog's
+  database was closed: the script undid both, and the section failed with one check, "browser
+  tests ran", giving Playwright's exit status 137 and where its output is.
+- **Without Node.js** the section is a single FAIL, "Node.js and npm installed", and the other
+  sections run.
+- **Memory:** 2.8 GiB available before `all ui` (MicroK8s stopped), 0.7 GiB after it, with the
+  stack still running.
+
+How it differs from the list above:
+- **Playwright runs from `node_modules/.bin`**, not through `npx`, which could fetch a package
+  of its own.
+- **The undo file replaces the `PAUSED` idea.** The tests already note the podman arguments that
+  undo each change, which covers the closed database too. The script runs what is left in the
+  file after the tests, and in `on_exit`.
+- **The results stay in `development/ui-test/test-results/`**, Playwright's default, with the
+  list reporter's output added as `output.log`, because `$WORK` is gone by the time `logs` runs.
+- **A run without a report** (killed, or a configuration that doesn't load) gives one failing
+  check, and errors outside the tests, such as a spec file that doesn't compile, one check each.
+
+Left open: `npx playwright test` by hand runs without the script's lock. The config's header and
+the skill say so.
 
 ## Step 4: Run them in CI
 

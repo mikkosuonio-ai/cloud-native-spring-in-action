@@ -2,7 +2,9 @@ import { defineConfig } from '@playwright/test';
 
 // Browser tests of polar-ui, through edge-service, against the stack that
 // `development/script/smoke-test.sh up edge` starts. Some tests break parts of that stack for a
-// while, so the tests run one at a time, in file order. Run them from this directory:
+// while, so the tests run one at a time, in file order. The smoke script runs them with its ui
+// selection, `smoke-test.sh all ui` or `test ui`, under its lock, so that no other smoke test
+// runs against the stack meanwhile. To run them by hand, from this directory:
 //
 //   npm ci && npx playwright install chromium-headless-shell
 //   npx playwright test
@@ -11,7 +13,8 @@ import { defineConfig } from '@playwright/test';
 //   UI_BASE_URL     edge-service (default http://localhost:9000)
 //   UI_TEST_OUTPUT  directory for traces and screenshots of failed tests (default test-results)
 //   UI_TEST_JSON    also write the results to this file with the JSON reporter
-//   UI_UNDO_FILE    file to note each container a test stops or pauses in, until it's restored
+//   UI_UNDO_FILE    file to note the podman command undoing each change a test makes to the
+//                   stack, until the test has undone it
 export default defineConfig({
   testDir: 'tests',
   outputDir: process.env.UI_TEST_OUTPUT ?? 'test-results',

@@ -1,6 +1,6 @@
 ---
 name: smoke-test
-description: Start PolarBookshop services (catalog, order, dispatcher, config, edge with polar-ui, quote, quote-function) with Podman, or deploy catalog, order, dispatcher and config to a MicroK8s Kubernetes cluster from their k8s/ manifests, and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, order-accepted/order-dispatched messaging, config serving and catalog-service reading its configuration from config-service, and the edge gateway's OAuth2 login, token relay, CSRF and circuit breaker, the quote endpoints of quote-service and quote-function's Spring Cloud Function endpoints, actuator metrics, and (with observability) Prometheus scraping, Tempo traces across services and Grafana provisioning. Use when asked to smoke test, run, or verify any of those services end to end.
+description: Start PolarBookshop services (catalog, order, dispatcher, config, edge with polar-ui, quote, quote-function) with Podman, or deploy catalog, order, dispatcher and config to a MicroK8s Kubernetes cluster from their k8s/ manifests, and run HTTP smoke tests covering health, auth/role checks, book CRUD, order placement, order-accepted/order-dispatched messaging, config serving and catalog-service reading its configuration from config-service, and the edge gateway's OAuth2 login, token relay, CSRF and circuit breaker, polar-ui in a headless browser (Playwright: login, book management, ordering, logout, outages), the quote endpoints of quote-service and quote-function's Spring Cloud Function endpoints, actuator metrics, and (with observability) Prometheus scraping, Tempo traces across services and Grafana provisioning. Use when asked to smoke test, run, or verify any of those services end to end.
 ---
 
 # PolarBookshop smoke test (Podman, MicroK8s)
@@ -11,6 +11,7 @@ This server has Podman 4.9 and podman-compose, and no Docker. The script
 ```bash
 bash development/script/smoke-test.sh all              # up + test catalog, order, dispatcher, config
 bash development/script/smoke-test.sh all edge         # edge-service (+ catalog, order, polar-ui)
+bash development/script/smoke-test.sh all ui           # edge, then polar-ui's browser tests
 bash development/script/smoke-test.sh all catalog      # catalog-service only (postgres + keycloak)
 bash development/script/smoke-test.sh all dispatcher   # dispatcher-service only (rabbitmq)
 bash development/script/smoke-test.sh all config       # config-service only (no backing services)
@@ -31,7 +32,9 @@ not in the default because everything together doesn't fit in memory. Dependenci
 automatically:
 - `order` adds `catalog`, because order-service looks books up in catalog-service;
 - `edge` adds `catalog`, `order` and the prebuilt `polar-ui` image, because the gateway routes to
-  them.
+  them;
+- `ui` adds `edge`. It runs the browser tests of polar-ui in `development/ui-test/` after edge's
+  checks (see "Browser tests").
 
 With both `catalog` and `config` selected, as in the default, catalog-service reads its
 configuration from config-service. Without `config`, it uses its own `application.yml`.
@@ -76,7 +79,8 @@ The lock and the records are in `~/.local/state/polar-smoke-test/`.
 1. **Check memory first.** The machine has ~4 GB RAM and no swap. Run `free -h` and make sure no
    Gradle daemons or other containers are holding memory.
    - The default stack needs about 2.7 GiB available and leaves only ~0.5 GiB free.
-   - `edge` needs about 2.5 GiB and leaves ~0.7 GiB free.
+   - `edge` needs about 2.5 GiB and leaves ~0.7 GiB free. `ui` adds about 0.3 GiB for the
+     browser, so stop MicroK8s first if it runs.
    - Catalog alone needs about 1.5 GiB, dispatcher or config alone about 0.6 GiB, and quote or
      quote-function about 0.55 GiB each (they use only ~110-130 MB once running).
    - `observability` adds about 0.3 GiB. `order dispatcher observability` leaves ~0.35 GiB free
@@ -220,6 +224,29 @@ The lock and the records are in `~/.local/state/polar-smoke-test/`.
 - Treats a 200 from `/quotes` (quote-service) or `/randomQuote` (quote-function) as ready, because
   neither has an actuator.
 - Leaves the orders it creates in the database, because order-service has no delete endpoint.
+
+## Browser tests (`ui`)
+
+`ui` runs the Playwright tests in `development/ui-test/` against edge-service, in headless
+Chromium. They need Node.js and npm; without them the section fails with one check that says so,
+and the rest of the run goes on. The script:
+- runs `npm ci` there when `node_modules` is missing or older than the lock file, and
+  `playwright install chromium-headless-shell`, which downloads the browser only once;
+- turns each test into one check in the "polar-ui (browser)" section, and so into a JUnit test
+  case. A failure's detail is the first line of its error. A test marked `test.fail` for an open
+  review finding passes as "expected failure", and fails once it passes, so that the finding's
+  fix also removes the mark;
+- leaves the list reporter's output (`output.log`) and the traces and screenshots of failed tests
+  in `development/ui-test/test-results/`, which `logs DIR` copies to `DIR/ui/`. Open a trace with
+  `npx playwright show-trace <trace.zip>`;
+- runs the undo commands the outage tests note in a file while catalog-service is paused or its
+  database closed, after the tests and when the script exits, so that a killed test doesn't leave
+  the stack broken.
+
+The tests run one at a time, under the script's lock, because some of them break parts of the
+stack for a while. Each test's books have ISBNs starting with 97, and a fixture deletes them from
+catalog's database before and after each test. `npx playwright test` in that directory runs them
+by hand against a running edge stack, but without the lock.
 
 ## Kubernetes (`--k8s`)
 
