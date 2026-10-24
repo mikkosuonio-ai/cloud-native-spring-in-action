@@ -24,6 +24,22 @@ update. The send also still blocks the R2DBC thread until the connection timeout
 
 ## Resolved
 
+### catalog-service's image didn't build on GitHub's runners
+
+Found and fixed 2026-10-24, in CI run 40073295069.
+
+**Symptom:** `bootBuildImage` pulled the run image "for platform 'linux/arm64'" on the amd64
+runner, and the lifecycle's creator failed with "Exec format error". The other services' images
+built.
+
+**Cause:** on 2026-10-23 Paketo pushed `paketobuildpacks/builder-noble-java-tiny:latest` as a
+single arm64 image instead of an index, while its version tag `0.0.200` is an index for amd64
+and arm64. catalog-service, the only service on that builder and on Spring Boot 3.5, takes the
+platform from the builder. The development server still had an earlier `latest` (0.0.199), so
+its builds worked.
+
+**Fix:** catalog-service's `build.gradle` names the builder's version, `0.0.200`.
+
 ### A browser couldn't log in through the compose setup
 
 Found and fixed 2026-10-23 with a headless browser against `smoke-test.sh all edge`
