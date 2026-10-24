@@ -235,10 +235,10 @@ jobs:
       fail-fast: false
       matrix:
         # The script's service selections. It adds catalog and order for edge, and catalog for
-        # order.
+        # order. ui runs the browser tests of polar-ui after edge's checks.
         services:
           - catalog order dispatcher config
-          - edge
+          - edge ui
           - quote quote-function
           - order dispatcher observability
     steps:
@@ -265,6 +265,21 @@ jobs:
           podman-compose version
           free -h
           df -h /
+      # The script installs the browser tests' packages and browser itself, but not the system
+      # libraries the browser needs, which --with-deps adds with apt.
+      - name: Set up Node.js
+        if: ${{ contains(format(' {0} ', matrix.services), ' ui ') }}
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: development/ui-test/.nvmrc
+          cache: npm
+          cache-dependency-path: development/ui-test/package-lock.json
+      - name: Install the browser tests' packages and browser
+        if: ${{ contains(format(' {0} ', matrix.services), ' ui ') }}
+        working-directory: development/ui-test
+        run: |
+          npm ci --no-audit --no-fund
+          node_modules/.bin/playwright install --with-deps chromium-headless-shell
       # Without --rebuild, the script uses the loaded images. Without a JDK, it fails if one is
       # missing.
       - name: Smoke test
