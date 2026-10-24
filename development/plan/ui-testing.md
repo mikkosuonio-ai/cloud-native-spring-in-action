@@ -347,6 +347,32 @@ so that flakiness shows early. The edge job has stalled before (finding 34).
 Then mark finding 1's deferred check as done in `review-2026-10-19.md`, with what the browser
 showed.
 
+Result (2026-10-24): **one green run, not three.** The user had 170 Actions minutes for this
+step, and a full run takes about 60, so three green runs didn't fit after two that failed for
+other reasons. Finding 1's deferred check was already marked done in step 2.
+- **Run 40073295069 (18bc88c, about 36 minutes):** catalog-service's image didn't build, so no
+  smoke test ran. Paketo had pushed `builder-noble-java-tiny:latest` as an arm64-only image the
+  day before. Fixed by pinning catalog-service's builder to `0.0.200` (b7e0d4f; see
+  `PolarBookshop/findings.md`).
+- **Run 40073825096 (b7e0d4f, about 59 minutes):** the edge job's Node.js, package and browser
+  steps passed, but quay.io answered the Keycloak pull with 503, before any test ran. The other
+  smoke jobs passed with the new catalog-service image. Fixed by retrying the script's image
+  pulls three times (cf59230).
+- **Run 40074491065 (cf59230, about 58 minutes):** every job passed. The edge job ("edge ui")
+  passed all 99 checks, with the 10 browser tests. The Node.js setup, `npm ci` and the browser with its libraries took about 15 s,
+  and the job about 4.5 minutes instead of 3.3.
+
+How it differs from the list above:
+- **No cache for the browser.** Downloading it with its libraries took seconds, about what
+  restoring a cache would.
+- **`playwright install --with-deps` always**, in a step of its own before the smoke test,
+  rather than only once a library turns out to be missing: finding out would have cost a run.
+  Whether the runner image has all the libraries wasn't checked. The script doesn't install
+  them, since that needs sudo.
+
+Still to do: two more green runs, to show flakiness early, when there are minutes for them.
+They can go with the next pushes of other work.
+
 ## Step 5 (decision): Bring polar-ui into the repository
 
 Steps 0–4 test the image the book published in 2022. That is enough to guard the backend's
