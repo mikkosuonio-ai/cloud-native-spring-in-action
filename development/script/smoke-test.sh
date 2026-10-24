@@ -411,14 +411,20 @@ up() {
   needs_observability && backing+=(prometheus tempo grafana)
   # Podman has no unqualified-search registries here, so short names like
   # "rabbitmq:3.13-management" only work once the image is in local storage.
-  local img
+  local img attempt
   for s in "${backing[@]}"; do
     img=$(python3 -I -c 'import sys,yaml; print(yaml.safe_load(open(sys.argv[1]))["services"][sys.argv[2]]["image"])' "$COMPOSE" "$s")
     podman image exists "$img" && continue
     if [[ $img != */* ]]; then img=docker.io/library/$img
     elif [[ ${img%%/*} != *[.:]* ]]; then img=docker.io/$img; fi
     echo "Pulling $img"
-    podman pull -q "$img" >/dev/null || { echo "Pull of $img FAILED" >&2; exit 1; }
+    # Registries sometimes answer 503 for a moment, as quay.io did in CI run 40073825096.
+    for attempt in 1 2 3; do
+      podman pull -q "$img" >/dev/null && break
+      (( attempt == 3 )) && { echo "Pull of $img FAILED" >&2; exit 1; }
+      echo "Pull of $img failed, retrying in 15 s"
+      sleep 15
+    done
   done
 
   # Guard: `podman-compose up` with no service names starts every service in the file.
