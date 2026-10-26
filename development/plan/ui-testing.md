@@ -373,6 +373,10 @@ How it differs from the list above:
 Still to do: two more green runs, to show flakiness early, when there are minutes for them.
 They can go with the next pushes of other work.
 
+- **Run 40248954904 (c66359e, the weekly schedule, 2026-10-26, about 9 minutes):** every job
+  passed, the edge ui job in 4.4 minutes. The repository had gone public the day before, and
+  the run billed 0 minutes. One more green run to go; minutes no longer limit it.
+
 ## Step 5 (decision): Bring polar-ui into the repository
 
 Steps 0–4 test the image the book published in 2022. That is enough to guard the backend's
@@ -402,7 +406,44 @@ What B needs:
 - **The smoke script.** It builds `polar-ui` like the other services (`build polar-ui`, the
   `ALL_APPS` and `--rebuild` handling), and the compose file uses the local image.
 
+Decision (2026-10-26): **C, with public repositories.** The recommendation was B because of the
+CI minutes. Public repositories run on GitHub's standard runners for free, so the user made this
+repository public (2026-10-25, after a scan of its history found no secrets) and forked polar-ui
+to the public [mikkosuonio-ai/polar-ui](https://github.com/mikkosuonio-ai/polar-ui), cloned at
+`/home/ai/devel/polar-ui`. The cost that stays: a change that touches both the UI and the
+backend needs a release of the fork and a tag bump here, in that order.
+
+In the fork, first without changes to the UI:
+- **`Containerfile`**, replacing the buildpack image:
+  - a build stage on `node:16.14.0` running `npm ci` and `ng build`;
+  - an nginx stage, with a pinned version, holding the build and `mime.types`;
+  - `nginx.conf` as a template in `/etc/nginx/templates/`, where the image's `envsubst` fills in
+    `listen ${PORT}`, instead of the buildpack's `{{port}}`;
+  - `ENV PORT=9004`, so the compose file and the k8s manifests stay as they are.
+- **`.github/workflows/commit-stage.yml`**, replacing upstream's (`pack`, the deprecated
+  `builder:base`, old actions):
+  - every push builds the SPA and the image;
+  - `main` pushes `ghcr.io/mikkosuonio-ai/polar-ui:sha-<7>`, and a `v*` tag pushes the tag too;
+  - the package is public, so this repository pulls it without credentials;
+  - unit tests and lint wait for step 6.
+- **A README note** that this is a fork, and how to build the image locally.
+- **Verify:**
+  - build `localhost/polar-ui:dev`;
+  - here, `SMOKE_POLAR_UI_IMAGE=localhost/polar-ui:dev smoke-test.sh all ui` gives the same 99
+    passes as `v1`.
+- **Release** that as `v1.1`.
+
+Then here:
+- the compose file and the two k8s manifests under `polar-deployment/kubernetes/platform` use
+  `ghcr.io/mikkosuonio-ai/polar-ui:v1.1`;
+- `all ui` and CI's edge ui job pass on it.
+
+Commits in the fork come from a Claude session started in its clone, since a session in a
+worktree here runs git only in that worktree.
+
 ## Step 6 (after step 5): Make polar-ui's own tests worth having
+
+In the fork (see step 5's decision).
 
 The app is small, about 300 lines of TypeScript, and mostly passes data between HTTP and
 templates. Most of its risk is in integration (routes, cookies, redirects, CSRF), which only the
@@ -446,6 +487,6 @@ specs themselves (TestBed, `HttpTestingController`) carry over.
 ## Open questions
 
 - Step 0's result decides whether the browser tests need a flag or a change to the stack.
-- Step 5: A, B or C.
+- ~~Step 5: A, B or C.~~ C, with a public fork (2026-10-26).
 - Should the bugs found by reading the code go into the review plan now, as findings, or after
   the browser tests confirm them?
