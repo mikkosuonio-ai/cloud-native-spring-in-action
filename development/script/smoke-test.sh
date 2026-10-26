@@ -31,6 +31,8 @@
 # Environment:
 #   SMOKE_JDK_17, SMOKE_JDK_21  JDKs the image builds run on (default: the sdkman installations)
 #   SMOKE_JUNIT=FILE            test and all also write each check to FILE as JUnit XML
+#   SMOKE_POLAR_UI_IMAGE        polar-ui image instead of the compose file's, for example a
+#                               local build of the fork, localhost/polar-ui:dev
 #   KUBECTL                     kubectl command for --k8s (default: microk8s kubectl)
 # Run from anywhere inside a worktree of the repository.
 set -uo pipefail
@@ -303,9 +305,11 @@ EOF
 run_args() { # service
   local client= traces=; config_client "$1" && client=1; needs_observability && traces=1
   python3 -I - "$COMPOSE" "$1" "$NET" "${STANDALONE_PORT[$1]:-}" "$client" "$traces" <<'EOF'
-import sys, yaml
+import os, sys, yaml
 compose, name, net, port, client, traces = sys.argv[1:]
 svc = yaml.safe_load(open(compose))["services"].get(name) or {"image": name, "ports": [f"{port}:{port}"]}
+if name == "polar-ui" and os.environ.get("SMOKE_POLAR_UI_IMAGE"):
+    svc["image"] = os.environ["SMOKE_POLAR_UI_IMAGE"]
 env = svc.get("environment", [])
 if isinstance(env, dict):
     env = [f"{k}={v}" for k, v in env.items()]
@@ -371,7 +375,7 @@ check_memory() {
 build_images() {
   local s other
   for s in "${SERVICES[@]}"; do
-    [[ -d $PB/$s ]] || continue   # prebuilt image (polar-ui); podman run pulls it
+    [[ -d $PB/$s ]] || continue   # prebuilt image (polar-ui, built in its fork); podman run pulls it
     if (( REBUILD )) || ! podman image exists "$s"; then
       build_image "$s"
     elif other=$(built_elsewhere "$s"); then

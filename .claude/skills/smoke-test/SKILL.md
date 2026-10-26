@@ -54,7 +54,8 @@ by hand.
 
 CI runs the same script. It builds each image once with `build`, in a job of its own, and the
 smoke test jobs run without `--rebuild` on those images. Three environment variables are for CI,
-and for machines set up differently from this one:
+and for machines set up differently from this one (a fourth, `SMOKE_POLAR_UI_IMAGE`, is in
+"Browser tests"):
 - `SMOKE_JDK_17` and `SMOKE_JDK_21` name the JDKs for the image builds instead of the sdkman ones.
 - `SMOKE_JUNIT=<file>` makes `test` and `all` also write every check to the file as a JUnit test
   case. A run that stops before its tests finish, such as one whose `up` fails, gets an error
@@ -247,6 +248,12 @@ The tests run one at a time, under the script's lock, because some of them break
 stack for a while. Each test's books have ISBNs starting with 97, and a fixture deletes them from
 catalog's database before and after each test. `npx playwright test` in that directory runs them
 by hand against a running edge stack, but without the lock.
+
+polar-ui's source isn't in this repository. It is developed in the fork
+[mikkosuonio-ai/polar-ui](https://github.com/mikkosuonio-ai/polar-ui), cloned at
+`/home/ai/devel/polar-ui`, whose CI publishes its image. To test a change there before it is
+released, build the image in the fork and pass it to the script:
+`SMOKE_POLAR_UI_IMAGE=localhost/polar-ui:dev bash development/script/smoke-test.sh all ui`.
 
 ## Kubernetes (`--k8s`)
 
