@@ -375,7 +375,9 @@ They can go with the next pushes of other work.
 
 - **Run 40248954904 (c66359e, the weekly schedule, 2026-10-26, about 9 minutes):** every job
   passed, the edge ui job in 4.4 minutes. The repository had gone public the day before, and
-  the run billed 0 minutes. One more green run to go; minutes no longer limit it.
+  the run billed 0 minutes.
+- **Run 40303735772 (d9fa46a, 2026-10-26, about 6 minutes, 0 billed):** every job passed,
+  edge ui too. That is the third green run in a row, so step 4 is done.
 
 ## Step 5 (decision): Bring polar-ui into the repository
 
