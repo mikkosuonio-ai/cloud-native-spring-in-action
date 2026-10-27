@@ -252,7 +252,8 @@ How it differs from the list above:
 What the browser tests found:
 - The login (finding 35, step 0).
 - **Removing a book doesn't update the list** (new finding 37). It's in polar-ui, so it waits
-  for step 5.
+  for step 5. Fixed in the fork's `v1.2.1` (2026-10-27), and the test's `test.fail` mark is
+  gone.
 - **Finding 32's effect in the SPA:** the spinner stays for good.
 - **The anonymous `GET /user` also logs an Angular `ERROR`.** It's allowed, as are the 401's
   own console line and response.

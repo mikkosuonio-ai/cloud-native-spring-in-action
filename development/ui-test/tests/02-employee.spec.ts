@@ -47,7 +47,8 @@ test('an employee adds, edits and removes a book', async ({ page }) => {
     const removed = page.waitForResponse(r => r.request().method() === 'DELETE' && r.url().endsWith(`/books/${isbn}`));
     await page.getByRole('menuitem', { name: 'Remove' }).click();
     expect((await removed).status()).toBe(204);
-    // The list itself still shows the book; see the next test.
+    // After a reload, the list comes from catalog-service again, so the book is gone there too.
+    // The next test checks the list without a reload.
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Browse Books' })).toBeVisible();
     await expect(bookCard(page, SEEDED.isbn)).toBeVisible();
@@ -55,11 +56,9 @@ test('an employee adds, edits and removes a book', async ({ page }) => {
   });
 });
 
-// BookListComponent.removeBook navigates to /browse-books, the page it's on, and Angular's
-// router ignores a navigation to the current URL, so the list isn't loaded again (review
-// finding 37). When this test passes, the finding is fixed: remove the test.fail.
+// The list used to keep a removed book until the page was loaded again (review finding 37,
+// fixed in polar-ui v1.2.1).
 test('removing a book takes it off the list', async ({ page }) => {
-  test.fail(true, 'review finding 37: the list keeps a removed book until the page is loaded again');
   const isbn = uniqueIsbn();
   await logIn(page, 'isabelle');
   await addBook(page, { isbn, title: 'UI Smoke Test', author: 'Browser Tester', price: 7.5 });
