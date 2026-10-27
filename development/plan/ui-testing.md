@@ -415,30 +415,36 @@ to the public [mikkosuonio-ai/polar-ui](https://github.com/mikkosuonio-ai/polar-
 `/home/ai/devel/polar-ui`. The cost that stays: a change that touches both the UI and the
 backend needs a release of the fork and a tag bump here, in that order.
 
-In the fork, first without changes to the UI:
-- **`Containerfile`**, replacing the buildpack image:
-  - a build stage on `node:16.14.0` running `npm ci` and `ng build`;
-  - an nginx stage, with a pinned version, holding the build and `mime.types`;
-  - `nginx.conf` as a template in `/etc/nginx/templates/`, where the image's `envsubst` fills in
-    `listen ${PORT}`, instead of the buildpack's `{{port}}`;
-  - `ENV PORT=9004`, so the compose file and the k8s manifests stay as they are.
-- **`.github/workflows/commit-stage.yml`**, replacing upstream's (`pack`, the deprecated
-  `builder:base`, old actions):
-  - every push builds the SPA and the image;
-  - `main` pushes `ghcr.io/mikkosuonio-ai/polar-ui:sha-<7>`, and a `v*` tag pushes the tag too;
-  - the package is public, so this repository pulls it without credentials;
-  - unit tests and lint wait for step 6.
-- **A README note** that this is a fork, and how to build the image locally.
-- **Verify:**
-  - build `localhost/polar-ui:dev`;
-  - here, `SMOKE_POLAR_UI_IMAGE=localhost/polar-ui:dev smoke-test.sh all ui` gives the same 99
-    passes as `v1`.
-- **Release** that as `v1.1`.
+Result in the fork, `v1.1` (c3adb77), with the UI unchanged:
+- **The book's buildpack build, on a supported builder.** A Dockerfile build came first
+  (9c322bb). The fork then went back to upstream's way:
+  - `./gradlew buildAngular` downloads Node.js 16.14.0, builds the SPA into `dist/public` and
+    copies `nginx/` into `dist`;
+  - `pack build` uses the Paketo nginx buildpack on `paketobuildpacks/builder-jammy-base`
+    (Ubuntu 22.04), pinned to `0.4.673`, instead of the deprecated `builder:base`
+    (Ubuntu 18.04).
+  - The image has no default port. It needs `PORT`, which the compose file and both k8s
+    manifests already set to 9004.
+- **Two quirks of the buildpack:**
+  - **Temporary files in `{{ tempDir }}`.** The Jammy run image runs nginx as a user who can't
+    write to `/workspace`, nginx's prefix, so nginx couldn't start. `nginx/nginx.conf` sets
+    `client_body_temp_path`, `proxy_temp_path` and `fastcgi_temp_path` under the buildpack's
+    `{{ tempDir }}`.
+  - **`BP_NGINX_VERSION` breaks detection.** Setting it makes the nginx buildpack (1.3.3) fail
+    detection unless there is a `buildpack.yml`. So the image has the buildpack's default
+    nginx, 1.31, which comes from the builder version.
+- **The workflow** builds the SPA with Gradle and the image with `pack` on every push.
+  - It publishes `ghcr.io/mikkosuonio-ai/polar-ui:sha-<7>` from `mikkosuonio/development`, and
+    the tag's name from a `v*` tag. `main` stays as upstream's.
+  - The package is public, so this repository pulls it without credentials.
+  - Unit tests and lint wait for step 6.
+- **The README** says it's a fork, and shows the `pack` build on Docker and on Podman (through
+  Podman's Docker API socket).
+- **Verified in the fork session:** the smoke test with the browser tests passed on the image
+  (99 passed).
 
-Then here:
-- the compose file and the two k8s manifests under `polar-deployment/kubernetes/platform` use
-  `ghcr.io/mikkosuonio-ai/polar-ui:v1.1`;
-- `all ui` and CI's edge ui job pass on it.
+Then here, the compose file and the two k8s manifests under `polar-deployment/kubernetes/platform`
+use `ghcr.io/mikkosuonio-ai/polar-ui:v1.1`, and `all ui` and CI's edge ui job pass on it.
 
 Commits in the fork come from a Claude session started in its clone, since a session in a
 worktree here runs git only in that worktree.

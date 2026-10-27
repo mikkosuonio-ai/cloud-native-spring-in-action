@@ -252,7 +252,8 @@ by hand against a running edge stack, but without the lock.
 polar-ui's source isn't in this repository. It is developed in the fork
 [mikkosuonio-ai/polar-ui](https://github.com/mikkosuonio-ai/polar-ui), cloned at
 `/home/ai/devel/polar-ui`, whose CI publishes its image. To test a change there before it is
-released, build the image in the fork and pass it to the script:
+released, build the image in the fork (with `pack`, as its README shows) and pass it to the
+script:
 `SMOKE_POLAR_UI_IMAGE=localhost/polar-ui:dev bash development/script/smoke-test.sh all ui`.
 
 ## Kubernetes (`--k8s`)
