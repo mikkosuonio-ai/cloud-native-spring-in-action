@@ -45,12 +45,10 @@ test('the catalog fallback answers without books while catalog-service is frozen
   });
 });
 
-// The fallback is an empty string, not a JSON list (review finding 32). HttpClient parses it as
-// null, so the book list shows a spinner for good instead of an empty list. Until the response
-// comes, the list is empty, so the test waits for it. When this test passes, finding 32 is
-// fixed: remove the test.fail.
+// The fallback used to be an empty string, which HttpClient parses as null, so the book list
+// showed a spinner for good (review finding 32). Until the response comes, the list is empty,
+// so the test waits for it.
 test('the catalog fallback shows an empty book list', async ({ page }) => {
-  test.fail(true, 'review finding 32: the fallback body is "", so the list shows a spinner for good');
   await withPaused('catalog-service', async () => {
     const books = page.waitForResponse(r => r.request().method() === 'GET' && r.url().endsWith('/books'),
       { timeout: 15_000 });

@@ -1029,11 +1029,11 @@ test_edge() {
   check "logout redirects to Keycloak"      True "$([[ $LOCATION == http://host.docker.internal:8080/realms/PolarBookshop/protocol/openid-connect/logout* ]] && echo True)"
   edge GET /user "$ij";                     check "GET /user after logout"            401 "$CODE"
 
-  # Circuit breaker: with catalog-service frozen, reads fall back to an empty 200 and
+  # Circuit breaker: with catalog-service frozen, reads fall back to 200 with an empty list and
   # writes to 503 (after the 5 s time limit).
   PAUSED=catalog-service; podman pause catalog-service >/dev/null
   edge GET /books "$anon";                  check "GET /books, catalog down: fallback" 200 "$CODE"
-  check "fallback body is empty"            "" "$BODY"
+  check "fallback body is an empty list"    "[]" "$BODY"
   edge POST /books "$bj" "$book";           check "POST /books, catalog down"         503 "$CODE"
   podman unpause catalog-service >/dev/null; PAUSED=
   edge GET /books "$anon";                  check "GET /books, catalog back"          200 "$CODE"

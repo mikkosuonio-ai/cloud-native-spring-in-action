@@ -211,6 +211,7 @@ Tests, in the order a user would meet them:
    - With `catalog-service` paused, record what the list shows.
    - Expected today: a spinner and no error, because of the `""` body.
    - With finding 32's fix it becomes an empty list; the test changes with the fix.
+     Fixed in edge-service (2026-10-27), and the test's `test.fail` mark is gone.
 
 Tests 6 and 7 pause containers, so they run last, in their own `describe` with `serial` mode.
 
@@ -226,10 +227,10 @@ curl smoke checks passed afterwards (89).
 | File | Tests |
 |---|---|
 | `01-anonymous` | "Log In" and only "Browse Books" in the menu; the catalog's cards with their details |
-| `02-employee` | isabelle adds, edits and removes a book through the forms and the card menu (201, 200, 204, CSRF by Angular itself); **expected failure:** the list drops a removed book (finding 37) |
+| `02-employee` | isabelle adds, edits and removes a book through the forms and the card menu (201, 200, 204, CSRF by Angular itself); the list drops a removed book (finding 37, an expected failure until polar-ui `v1.2.1`) |
 | `03-customer` | bjorn orders 2 copies in the dialog and finds the order in "My Orders", with its status and total |
 | `04-session` | "Log Out" goes through Keycloak's logout and ends both sessions; a 401 from `GET /orders` sends an anonymous visitor to Keycloak's login page |
-| `05-outages` | a catalog 500 on "Create Book" leaves the employee logged in (finding 1); the fallback answers without books while catalog-service is paused; **expected failure:** the list shows an empty list then, not a spinner (finding 32) |
+| `05-outages` | a catalog 500 on "Create Book" leaves the employee logged in (finding 1); the fallback answers without books while catalog-service is paused; the list shows an empty list then, not a spinner (finding 32, an expected failure until its fix in edge-service) |
 
 How it differs from the list above:
 - **Test 6 closes catalog-service's database** (`ALTER DATABASE ... ALLOW_CONNECTIONS false`,
@@ -254,7 +255,8 @@ What the browser tests found:
 - **Removing a book doesn't update the list** (new finding 37). It's in polar-ui, so it waits
   for step 5. Fixed in the fork's `v1.2.1` (2026-10-27), and the test's `test.fail` mark is
   gone.
-- **Finding 32's effect in the SPA:** the spinner stays for good.
+- **Finding 32's effect in the SPA:** the spinner stays for good. Fixed in edge-service
+  (2026-10-27): the fallback is an empty JSON list.
 - **The anonymous `GET /user` also logs an Angular `ERROR`.** It's allowed, as are the 401's
   own console line and response.
 - **The build inlines Google's font CSS into index.html,** so the page also fetches from

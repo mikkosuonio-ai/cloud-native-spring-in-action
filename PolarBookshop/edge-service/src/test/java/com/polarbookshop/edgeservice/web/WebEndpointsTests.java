@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 class WebEndpointsTests {
@@ -16,13 +17,14 @@ class WebEndpointsTests {
 	}
 
 	@Test
-	void whenGetCatalogFallbackThenEmptyResponse() {
+	void whenGetCatalogFallbackThenEmptyList() {
 		webClient
 				.get()
 				.uri("/catalog-fallback")
 				.exchange()
 				.expectStatus().isOk()
-				.expectBody().isEmpty();
+				.expectHeader().contentType(MediaType.APPLICATION_JSON)
+				.expectBody(String.class).isEqualTo("[]");
 	}
 
 	@Test
