@@ -14,7 +14,7 @@ need no new tooling.
   `ghcr.io/mikkosuonio-ai/polar-ui:v1.2.1`;
 - the browser tests of `development/ui-test` run with `smoke-test.sh … ui` and in CI's edge ui
   job;
-- polar-ui's own tests are step 6.
+- polar-ui's own unit and e2e tests run in the fork's CI (step 6).
 
 The rest is as written on 2026-10-23.
 
@@ -448,8 +448,17 @@ Result in the fork, `v1.1` (c3adb77), with the UI unchanged:
 - **The workflow** builds the SPA with Gradle and the image with `pack` on every push.
   - It publishes `ghcr.io/mikkosuonio-ai/polar-ui:sha-<7>` from `mikkosuonio/development`, and
     the tag's name from a `v*` tag. `main` stays as upstream's.
+    - **Since c1b4f90,** a `v*` tag publishes only `:<tag>`, and only for a commit on
+      `mikkosuonio/development`; for any other commit the run fails at once.
+    - The images published before (`v1.1`, `v1.2`, `v1.2.1` and their `sha-` tags) are
+      unchanged.
   - The package is public, so this repository pulls it without credentials.
-  - Unit tests and lint wait for step 6.
+  - **Upstream's checks are back since a4ec13d.** The rewrite in 9c322bb had dropped them
+    without saying so:
+    - kubeconform 0.8.0 `-strict` on `k8s/`;
+    - Anchore scans of the workspace and of the image, reported to GitHub code scanning
+      (categories `code` and `image`), without failing the build.
+  - The unit tests and e2e tests run since step 6. Lint was dropped there.
 - **The README** says it's a fork, and shows the `pack` build on Docker and on Podman (through
   Podman's Docker API socket).
 - **Verified in the fork session:** the smoke test with the browser tests passed on the image
@@ -552,10 +561,84 @@ specs themselves (TestBed, `HttpTestingController`) carry over.
 **Drop `tslint`** and `codelyzer`, and `lintAngular` with them. Linting with `angular-eslint`
 can come with the Angular update, since its setup depends on the version.
 
+### Result in the fork (2026-10-28)
+
+Commits on `mikkosuonio/development`:
+- 8b58f21: the unit tests run headless, in the build and in CI;
+- 60582dd: unit tests where there is logic;
+- 31e7711: Playwright e2e tests replace Protractor;
+- 2a61f3f: tslint, codelyzer and `lintAngular` dropped;
+- 5e1eb0f: CI's e2e tests run in the runner's Google Chrome.
+
+The result: **35 unit tests and 16 e2e tests.** One e2e test is marked `test.fail`: the edit
+page when `GET /books/{isbn}` fails (findings 38 and 39). CI run 40693237124 passed.
+
+No release was needed. Since `v1.2.1` the fork changed only tests, CI and build tooling, and
+this repository stays on `ghcr.io/mikkosuonio-ai/polar-ui:v1.2.1`.
+
+Where it differs from the plan above:
+- **No Chrome sandbox, anywhere.** Ubuntu 24.04 blocks Chrome's sandbox on GitHub's runners and
+  on the development server alike; plain `ChromeHeadless` crashes with signal 6 on both.
+  - Karma uses one custom launcher, `ChromeHeadlessNoSandbox` (`--no-sandbox`), as Playwright
+    does by default.
+  - It runs with `ng test --watch=false`, not `singleRun: true`.
+  - Locally, `CHROME_BIN` points to Playwright's Chromium,
+    `~/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome`.
+- **`testAngular` is a CI step of its own,** before the build, not called from `buildAngular`.
+  Its JUnit results go to `build/test-results/testAngular`.
+- **The e2e project:**
+  - `@playwright/test` 1.63.0, on Node.js 24 (`e2e/.nvmrc`).
+  - The default server is `python3 -m http.server` on `dist/public`, which adds no npm
+    dependency. CI runs the tests against the image built in the same job, with `PORT=9004`.
+  - CI uses the runner's preinstalled Google Chrome (`UI_TEST_CHANNEL=chrome`, in
+    `e2e/playwright.config.ts`), so it skips `playwright install --with-deps`. Locally
+    Playwright's own Chromium stays the default.
+- **More went with Protractor:** `jasmine-spec-reporter` and `ts-node`, which only
+  `protractor.conf.js` used. The root lock file changed no versions.
+- **`lintAngular` was already broken:** angular.json has no lint target.
+
+How the mocks work:
+- **`e2e/tests/polar.ts` keeps the API in memory, and writes change it.** That lets the removal
+  test check that the list really loads again: a book added "elsewhere" shows up, and there
+  are two `GET /books`.
+- **Copied helpers:** the `problems` fixture, `failedCall` and the card and menu helpers come
+  from `development/ui-test/tests/polar.ts` here. The two copies can drift apart.
+
+The tests were checked against the bugs they should catch:
+- with finding 37's fix undone, its unit test fails;
+- with `v1.2`'s approach, dropping the book in the browser, the e2e test fails;
+- a broken 401 check in the interceptor fails its unit test;
+- without its `test.fail` mark, the edit page test fails on the spinner. When polar-ui gets
+  error handling (finding 39), the message has to match
+  `/can't be loaded|cannot be loaded|try again/i`, or the test changes.
+
+New findings from the work: 39 (no HTTP errors shown), 40 (the order total's `toPrecision(4)`),
+41 (the dead `src/app/fake-data.ts`), and a correction to 38's effect, in
+`development/plan/review-2026-10-19.md`.
+
 ## Later
 
 - **The Angular and Node update**, one major version at a time, each verified by the unit tests
   and the browser tests. A plan of its own, part of the dependency update.
+  - **The fork's first scans** (CI run 40693237124, 5e1eb0f):
+    - **Angular 13.2.6: 23 advisories** (13 high, 10 medium) in `@angular/common`, `core`,
+      `compiler` and `router`.
+      - Most concern SSR, hydration and `HttpTransferCache`, which the app doesn't use.
+      - The rest need i18n, `innerHTML` or `bypassSecurityTrust`, date or number pipes, or
+        protocol-relative URLs. A grep found none of those in `src/`.
+      - So the practical risk is low, and the update fixes them.
+    - **nginx 1.31.6 in the image: 3 critical, 1 high, 1 medium.**
+      - None applies to the fork's `nginx/nginx.conf`. They need TLS session caching, HTTP/3
+        proxying, AIO with SSI, `alias` with `rewrite`, or `map` with regex captures.
+      - The nginx buildpack v1.3.4 (2026-10-28) has nginx 1.31.7, but no
+        `builder-jammy-base` release includes it yet; the newest is the pinned `0.4.673`.
+        Raise the pin once one does. Whether 1.31.7 fixes these CVEs is unchecked.
+    - **Ubuntu 22.04 packages: 132 alerts,** none critical or high, and none with a fix yet.
+      Moving the builder pin forward is the only action.
+    - **About 620 more in build tools,** not in the image:
+      - Go 1.17 in esbuild's binaries in `node_modules`;
+      - the Node.js 16.14.0 that Gradle downloads into `.gradle/`.
+      - They are scanned on purpose, and the Angular and Node update clears them.
 - **edge-service and polar-ui on Kubernetes** (`--k8s`), already in the CI plan's future work.
   The browser tests take `UI_BASE_URL`, so they can run against the cluster's ingress too.
 - **Visual or accessibility checks** (Playwright screenshots, axe-core). Not needed for
