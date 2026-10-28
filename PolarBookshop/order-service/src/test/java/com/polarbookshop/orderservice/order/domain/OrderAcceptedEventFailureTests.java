@@ -40,7 +40,7 @@ import static org.mockito.BDDMockito.given;
 class OrderAcceptedEventFailureTests {
 
 	@Container
-	static PostgreSQLContainer<?> postgresql = new PostgreSQLContainer<>(DockerImageName.parse("postgres:14.12"));
+	static PostgreSQLContainer<?> postgresql = new PostgreSQLContainer<>(DockerImageName.parse("postgres:17.11"));
 
 	@Autowired
 	private OrderService orderService;

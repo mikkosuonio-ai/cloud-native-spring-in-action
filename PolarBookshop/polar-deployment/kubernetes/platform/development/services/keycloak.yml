@@ -15,16 +15,16 @@ spec:
     spec:
       containers:
         - name: polar-keycloak
-          image: quay.io/keycloak/keycloak:24.0
+          image: quay.io/keycloak/keycloak:26.8.1
           args:
             - "start-dev"
             - "--import-realm"
           ports:
             - containerPort: 8080
           env:
-            - name: KEYCLOAK_ADMIN
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
               value: user
-            - name: KEYCLOAK_ADMIN_PASSWORD
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
               value: password
             # kc.sh sizes the heap from the memory the JVM sees. Where the JVM doesn't detect the
             # container's limit, such as with newer kernels, it would size it from the node's RAM.

@@ -165,7 +165,7 @@ services:
   # Backing Services
 
   polar-postgres:
-    image: "postgres:14.12"
+    image: "postgres:17.11"
     container_name: "polar-postgres"
     ports:
       - 5432:5432
@@ -191,14 +191,14 @@ services:
       - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
   
   polar-keycloak:
-    image: quay.io/keycloak/keycloak:24.0
+    image: quay.io/keycloak/keycloak:26.8.1
     container_name: "polar-keycloak"
     command: start-dev --import-realm
     volumes:
       - ./keycloak:/opt/keycloak/data/import
     environment:
-      - KEYCLOAK_ADMIN=user
-      - KEYCLOAK_ADMIN_PASSWORD=password
+      - KC_BOOTSTRAP_ADMIN_USERNAME=user
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=password
     ports:
       - 8080:8080
 

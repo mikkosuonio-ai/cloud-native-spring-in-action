@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: polar-postgres
-          image: postgres:14.12
+          image: postgres:17.11
           env:
             - name: POSTGRES_USER
               value: user
