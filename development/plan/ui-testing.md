@@ -9,6 +9,15 @@ need no new tooling.
 
 ## Where testing of polar-ui is now
 
+**Since 2026-10-28,** after steps 0–5, this section describes the start rather than now:
+- polar-ui is the public fork mikkosuonio-ai/polar-ui, and this repository pins its image
+  `ghcr.io/mikkosuonio-ai/polar-ui:v1.2.1`;
+- the browser tests of `development/ui-test` run with `smoke-test.sh … ui` and in CI's edge ui
+  job;
+- polar-ui's own tests are step 6.
+
+The rest is as written on 2026-10-23.
+
 **polar-ui is not in this repository.** It is the book's Angular 13 SPA from
 [PolarBookshop/polar-ui](https://github.com/PolarBookshop/polar-ui), and the stack runs its
 prebuilt image `ghcr.io/polarbookshop/polar-ui:v1` (compose file, line 154). No commit here can
@@ -458,7 +467,37 @@ In the fork (see step 5's decision).
 
 The app is small, about 300 lines of TypeScript, and mostly passes data between HTTP and
 templates. Most of its risk is in integration (routes, cookies, redirects, CSRF), which only the
-browser tests reach. So unit tests are worth a modest effort, not a large suite:
+full-stack browser tests reach. Its own tests are still worth a modest effort, since the Angular
+update needs a safety net in the fork itself: its CI can't run the full stack.
+
+### Decision (2026-10-28): mocked Playwright e2e tests in the fork, next to the ones here
+
+Options compared for e2e tests in polar-ui:
+- **A: none,** as before. Nothing in the fork catches a broken SPA during the Angular update
+  until this repository pulls the new image.
+- **B: move this repository's browser tests to the fork,** and let the smoke script check them
+  out at the image's tag. They would carry this repository's container names, database and
+  Keycloak users. A backend fix that changes a test, as finding 32's did, would need a fork
+  commit and tag.
+- **C: keep the full-stack tests here, and add e2e tests in the fork** with the API mocked in
+  the browser. Two suites, and the mocks can drift from the real API, which the tests here
+  still guard.
+- **D: the full stack in the fork's CI.** It needs published backend images; too much for now.
+
+Chosen: **C, with Playwright.**
+- **No smoke script changes.** The tests here stay as they are.
+- **Why Playwright:**
+  - Every e2e framework drives the built app in a browser, so none depends on Angular's
+    version.
+  - Playwright is the same tool as here.
+  - It handles another origin's pages without extra steps, and it's light on this machine.
+- **Rejected:**
+  - Cypress is a second framework, heavier (Electron), and needs `cy.origin` for a login page on
+    another origin.
+  - WebdriverIO is also a second framework, with more setup.
+  - Protractor left the Angular CLI in version 15.
+
+### Unit tests
 
 - **Make them run.**
   - `ng test --watch=false --browsers=ChromeHeadless`, with `singleRun: true` in CI;
@@ -473,17 +512,45 @@ browser tests reach. So unit tests are worth a modest effort, not a large suite:
   - `AppComponent`: "Log In" vs "Log Out", "Add Book" only for `employee`, from a stubbed
     `/user`.
   - `BookService`, `OrderService`: method and URL of each call (`HttpTestingController`).
-  - `BookListComponent`: remove refreshes the list (the regression test for the bug above,
-    once fixed).
+  - `BookListComponent`: remove loads the list again (finding 37's regression test).
   - `OrderListComponent`: the total's formatting.
   - `OrderDialogComponent`: submits the request and closes.
-- **Delete `e2e/`** and Protractor; the browser tests of step 2 replace them.
-- **Drop `tslint`** and `codelyzer`. Linting with `angular-eslint` can come with the Angular
-  update, since its setup depends on the version.
 
-Keep the test setup minimal before the Angular update. Newer Angular versions replace Karma
+Keep the Karma setup minimal before the Angular update. Newer Angular versions replace Karma
 (Vitest is the default from Angular 21), so effort on Karma configuration is short-lived. The
 specs themselves (TestBed, `HttpTestingController`) carry over.
+
+### e2e tests
+
+- **Replace Protractor** (`e2e/protractor.conf.js`, `e2e/src`, the `protractor` dependency and
+  angular.json's `e2e` target) with a Playwright project of its own in `e2e/`:
+  - `@playwright/test` pinned as here, with its own lock file and `.nvmrc`;
+  - Playwright needs a newer Node than Angular 13's 16, so it joins the root `package.json`
+    with the Angular update, and so does `ng e2e` (`playwright-ng-schematics`).
+- **Run against the built app:**
+  - `UI_BASE_URL`, by default a Playwright `webServer` serving `dist/`. The app routes by hash,
+    so a plain static server works.
+  - In CI, the image just built, so its nginx config is tested too.
+- **Mock the API in the browser** (`page.route`):
+  - `/user` as an anonymous visitor, an employee or a customer;
+  - `/books`, `/books/{isbn}`, `/orders`.
+  - The login redirect is checked as a navigation to `/oauth2/authorization/keycloak`, not
+    followed.
+  - Unexpected console errors fail a test, like `problems` in `development/ui-test/tests/polar.ts`.
+- **Tests:**
+  - the book list with books, empty and failing;
+  - add, edit and remove, the list loading again after a removal among them;
+  - the menu for each role;
+  - the order dialog and "My Orders" with the total;
+  - a 401 sends the visitor to log in, and one on `/user` doesn't;
+  - the edit page when `GET /books/{isbn}` fails (finding 38), an expected failure while
+    polar-ui has no error handling.
+- **CI:** after the image build, with traces, screenshots and the report as artifacts.
+
+### Lint
+
+**Drop `tslint`** and `codelyzer`, and `lintAngular` with them. Linting with `angular-eslint`
+can come with the Angular update, since its setup depends on the version.
 
 ## Later
 
@@ -499,5 +566,5 @@ specs themselves (TestBed, `HttpTestingController`) carry over.
 
 - Step 0's result decides whether the browser tests need a flag or a change to the stack.
 - ~~Step 5: A, B or C.~~ C, with a public fork (2026-10-26).
-- Should the bugs found by reading the code go into the review plan now, as findings, or after
-  the browser tests confirm them?
+- ~~Should the bugs found by reading the code go into the review plan now, as findings, or after
+  the browser tests confirm them?~~ Now, as 32 and 36–38 were (2026-10-28).
