@@ -299,12 +299,8 @@ or need a push. Run heavy ones one at a time, after `free -h`.
 
 ### polar-ui and the browser tests
 
-- Small issues seen in polar-ui's code, not recorded as findings:
-  - the spinner never shows while loading, since `books` starts as `[]`;
-  - `index.html` loads fonts and icons from Google Fonts, and the build inlines Google's font CSS,
-    so the page depends on an external service. The tests block both font hosts. The fork is
-    to self-host them under `media/`, which edge-service permits and routes; then the tests'
-    font allowance can go, keeping the block as a guard.
+- A small issue seen in polar-ui's code, not recorded as a finding: the spinner never shows while
+  loading, since `books` starts as `[]`.
 - The anonymous `GET /user` 401 logs an Angular `ERROR` to the console, since `AppComponent`
   subscribes without an error handler. Both test suites allow it; 39's fix can remove it.
 - The fork's `e2e/tests/polar.ts` copies the `problems` fixture, `failedCall` and the card and menu

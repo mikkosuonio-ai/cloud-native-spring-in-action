@@ -33,10 +33,8 @@ type Problems = { allow(...patterns: RegExp[]): void };
 // Every book the tests create has an ISBN with this prefix; the curl smoke tests use 98 and 99.
 const OWN_ISBNS = '97';
 
-// Google Fonts: index.html links its stylesheets, and the build has inlined their @font-face
-// rules, so the page also fetches the fonts themselves. The tests block both, so that they
-// don't depend on Google; the icons then show their ligature names, and the text a fallback
-// font.
+// Google Fonts: polar-ui serves its fonts and icons itself under /media/ (since v2.0.0). The
+// tests block Google's font hosts without allowing it, so a request to them fails the test.
 const FONTS = /^https:\/\/fonts\.(googleapis|gstatic)\.com\//;
 
 // Every test fails on a browser problem it doesn't expect: a response of 400 or more, a failed
@@ -44,7 +42,7 @@ const FONTS = /^https:\/\/fonts\.(googleapis|gstatic)\.com\//;
 export const test = base.extend<{ problems: Problems; ownBooks: void }>({
   problems: [async ({ page }, use) => {
     const seen: string[] = [];
-    const allowed = [...ANONYMOUS_USER, new RegExp(`^(request failed GET |console: .*\\[)${FONTS.source.slice(1)}`)];
+    const allowed = [...ANONYMOUS_USER];
 
     await page.route(FONTS, route => route.abort('blockedbyclient'));
     // Angular's ErrorHandler logs console.error('ERROR', error). Name an HttpErrorResponse by its
