@@ -299,7 +299,7 @@ With the idle cluster, about 2.1 GiB is available.
   (catalog, then order, then dispatcher, then config); the default set leaves ~0.65 GiB.
 - A cold `all --k8s` passes too, with no restarts. The four JVMs and Keycloak starting together
   on 2 CPUs take 36-43 seconds. That's longer than the liveness probes allow, but the apps'
-  startup probes give them up to 150 seconds (see `PolarBookshop/findings.md`). Starting with
+  startup probes give them up to 150 seconds (see `development/README.md`). Starting with
   ~2.2 GiB available, it left at least ~0.75 GiB.
 
 ### What it does

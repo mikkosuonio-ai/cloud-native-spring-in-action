@@ -1,41 +1,15 @@
 # Open findings and future work
 
-What is left open from three plans, carried over on 2026-10-29 when they were deleted:
-- the review of 2026-10-19 (`review-2026-10-19.md`), whose finding numbers are kept here;
-- the CI build plan (`ci-build.md`), all nine steps done;
-- the polar-ui testing plan (`ui-testing.md`), all seven steps (0–6) done.
+The open findings, deferred checks and future work for PolarBookshop in this repository. How the
+development setup works, and why, is in `development/README.md`.
 
-The plans, with the fixed findings, how they were verified and the CI run IDs, are in git
-history: `git show 6a9cd2a:development/plan/<file>`. Code comments that cite a fixed finding,
-such as "review finding 37", point there.
+The findings come from the review of 2026-10-19, whose numbers are kept, from the CI build and
+polar-ui testing plans, and from the smoke tests (`PolarBookshop/findings.md` until 2026-10-29).
+Fixed findings are left out. They are in git history, with how each was verified and its CI runs:
+`git show 6a9cd2a:development/plan/review-2026-10-19.md`, and `PolarBookshop/findings.md` at the
+same commit. Code comments that cite a fixed finding, such as "review finding 37", point there.
 
-Paths are relative to `PolarBookshop/` unless they start with `development/` or `.github/`. Issues
-found and fixed while running the smoke tests are in `PolarBookshop/findings.md`.
-
-## Where things are
-
-- **CI** (`.github/workflows/commit-stage.yml`) runs on every push, weekly and by hand:
-  - the Gradle builds of the seven services;
-  - kubeconform on the services' `k8s/` and the development platform manifests;
-  - one image build per service, shared with the smoke jobs as artifacts and deleted after them;
-  - the smoke tests on Podman (default, `edge ui`, `quote quote-function`,
-    `order dispatcher observability`) and on MicroK8s (`all --k8s`);
-  - a summary of the test, coverage and smoke results.
-- **The smoke script**, `development/script/smoke-test.sh`, is the one entry point for CI and for
-  the `smoke-test` skill.
-- **The browser tests** of `development/ui-test/` (Playwright 1.63.0) run the full stack with
-  `smoke-test.sh … ui`: 10 tests, 99 checks with edge's.
-- **polar-ui** is the public fork mikkosuonio-ai/polar-ui (clone `/home/ai/devel/polar-ui`), and
-  this repository pins `ghcr.io/mikkosuonio-ai/polar-ui:v1.2.1`.
-  - The fork's CI runs 35 Karma unit tests and 16 mocked Playwright e2e tests (`e2e/`), scans the
-    code and the image with Anchore, and publishes `sha-<7>` from `mikkosuonio/development` and
-    `:<tag>` from a `v*` tag on that branch.
-  - A change that touches both the UI and the backend needs a release of the fork first, then a
-    tag bump here.
-  - Commits in the fork come from a Claude session started in its clone.
-- **Versions:** catalog-service is on Spring Boot 3.5.6 and JDK 21; the other services are on
-  Boot 2.7.18 and JDK 17. Everything except production runs PostgreSQL 17.11 and Keycloak 26.8.1
-  (finding 21, 2026-10-28).
+Paths are relative to `PolarBookshop/` unless they start with `development/` or `.github/`.
 
 ## The dependency update
 
@@ -89,9 +63,16 @@ it, one major version at a time, verified by the fork's tests and the browser te
 
 ### 3. A broker outage leaves orders without their event (interim fix)
 
-An order whose order-accepted event can't be sent is saved as FAILED and returned with 200 (see
-`PolarBookshop/findings.md`). The event is still never sent later. **Fix:** a transactional
-outbox, after the update. The blocking send is 26.
+- **Problem:** with RabbitMQ down, `POST /orders` answered 500 after the 5 s connection timeout,
+  but the order was saved as ACCEPTED and its order-accepted event never sent, so it was never
+  dispatched. A client's retry added a second ACCEPTED order. `submitOrder` commits the order
+  before it sends the event, so that an order-dispatched event can't arrive before the order is
+  visible, and nothing sends a failed event again.
+- **Interim fix:** an order whose event can't be sent is saved as FAILED and returned so, with
+  200, as a REJECTED order is. It isn't left ACCEPTED, and a retry is a new order. The trade-off
+  is described in `OrderService`.
+- **Left open:** the event still isn't sent later. **Fix:** a transactional outbox, after the
+  update. The send also still blocks the R2DBC thread until the connection timeout (26).
 
 ### 9. compose: order-service can't resolve `host.docker.internal` on Docker Engine
 
