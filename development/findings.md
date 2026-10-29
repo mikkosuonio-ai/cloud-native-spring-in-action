@@ -38,26 +38,16 @@ Spring Native 0.12 is replaced by Boot 3's native support), 17.
 - 24, 38: the update changes the Spring Cloud Function web layer and the gateway.
 - 3's outbox, 26: they touch the R2DBC and Stream APIs that change.
 - 23, 27, 31: application code that doesn't depend on versions.
-- 39, 40: polar-ui's code, in the fork.
 - 9, 28, 30.
 - 33, 42: a task of their own. Until the overlays use this repository's `k8s/` directories, the
   update doesn't reach staging and production.
 
-**polar-ui's Angular and Node update** (Angular 13 and Node 16, both out of support) is part of
-it, one major version at a time, verified by the fork's tests and the browser tests here:
-- Playwright then joins the fork's root `package.json`, with `ng e2e`
-  (`playwright-ng-schematics`), and `angular-eslint` replaces the dropped tslint.
-- Vitest replaces Karma from Angular 21. The specs (TestBed, `HttpTestingController`) carry over.
-- The fork's first scans (2026-10-28):
-  - **Angular 13.2.6: 23 advisories** (13 high). Most concern SSR, hydration and
-    `HttpTransferCache`, which the app doesn't use; the rest need features `src/` doesn't use. The
-    update fixes them.
-  - **nginx 1.31.6 in the image: 3 critical, 1 high, 1 medium,** none applying to the fork's
-    `nginx/nginx.conf`. The nginx buildpack v1.3.4 has 1.31.7, but no `builder-jammy-base`
-    release includes it yet; the fork pins `0.4.673`. Raise the pin once one does.
-  - **Ubuntu 22.04 packages: 132 alerts,** none critical or high, none with a fix yet.
-  - **About 620 in build tools,** scanned on purpose: Go 1.17 in esbuild's binaries and the
-    Node.js 16.14.0 that Gradle downloads. The update clears them.
+**polar-ui's Angular and Node update** went first, in the fork, one major version at a time
+(its `plan/angular-update.md`, which also tracks its vulnerability scans). Its releases v1.3.0 to v2.1.0 (2026-10-29) took it from Angular 13
+and Node.js 16 to Angular 22 and Node.js 24, and fixed 39, 40 and 41. Each was a tag bump here,
+verified by the browser tests. The SPA still sends the raw `XSRF-TOKEN` cookie value as
+`X-XSRF-TOKEN` on writes, and as `_csrf` in the logout form; edge-service's Boot 3 step has to
+accept both.
 
 ## Open findings
 
@@ -205,24 +195,8 @@ an empty form; `PUT` and `DELETE` probably get 404. Found by reading the code, n
 - split the route: `GET /books` keeps the `[]` fallback, the rest of `/books/**` falls back to an
   endpoint answering 503 for every method, covered in `WebEndpointsTests`;
 - check `GET /books/{isbn}`, `PUT` and `DELETE` in the smoke test's catalog pause;
-- a browser test for the edit page. The fork's e2e test of the page with a failing
-  `GET /books/{isbn}` is a `test.fail` until 39.
-
-### 39. polar-ui shows no HTTP errors
-
-No `subscribe` in polar-ui has an error callback, so a failed call only reaches the browser
-console. A failing `GET /books` or `GET /orders` shows an empty list, a failing
-`GET /books/{isbn}` a spinner for good; a failed DELETE, PUT, POST or `POST /orders` leaves the
-page as it was. **Fix,** in the fork: an error callback with a message for each call (for example
-a `MatSnackBar`, and on the edit page in place of the spinner), e2e tests for the failing writes,
-and remove the edit page test's `test.fail`. Its message has to match
-`/can't be loaded|cannot be loaded|try again/i`, or the test changes. Then a release and a tag
-bump here.
-
-### 40. polar-ui's "My Orders" formats totals with `toPrecision(4)`
-
-$9.90 shows as `$9.900`, $1234.50 as `$1235`, and from $10,000 up in exponential notation. The
-fork's e2e tests pin it. **Fix:** Angular's `currency` pipe, and change those tests.
+- a browser test for the edit page: with the 503, polar-ui (since v2.1.0) shows "The book can't
+  be loaded. Please try again later." in place of the form.
 
 ### 42. Production's Keycloak can't be deployed, and deploys differently from development
 
@@ -299,12 +273,8 @@ or need a push. Run heavy ones one at a time, after `free -h`.
 
 ### polar-ui and the browser tests
 
-- A small issue seen in polar-ui's code, not recorded as a finding: the spinner never shows while
-  loading, since `books` starts as `[]`.
-- The anonymous `GET /user` 401 logs an Angular `ERROR` to the console, since `AppComponent`
-  subscribes without an error handler. Both test suites allow it; 39's fix can remove it.
 - The fork's `e2e/tests/polar.ts` copies the `problems` fixture, `failedCall` and the card and menu
   helpers from `development/ui-test/tests/polar.ts`. The copies can drift apart.
 - `npx playwright test` by hand in `development/ui-test/` runs without the smoke script's lock.
-- Visual or accessibility checks (Playwright screenshots, axe-core), maybe with the Angular update,
-  whose Material changes alter the look.
+- Visual or accessibility checks (Playwright screenshots, axe-core). The fork's e2e tests fail on
+  serious axe-core findings since v2.0.1; the full-stack tests here have neither.

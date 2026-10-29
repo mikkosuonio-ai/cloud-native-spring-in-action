@@ -9,12 +9,11 @@ export const KEYCLOAK = 'http://host.docker.internal:8080';
 // One of the books catalog-service's testdata profile loads at startup.
 export const SEEDED = { isbn: '1234567891', title: 'Northern Lights', author: 'Lyra Silverstar', price: 9.9 };
 
-// What a page does on every anonymous load: GET /user answers 401, and AppComponent, which
-// subscribes to it without an error handler, logs the error.
+// What a page does on every anonymous load: GET /user answers 401, which the browser logs.
+// AppComponent handles it (since polar-ui v2.1.0), so Angular logs no error for it.
 const ANONYMOUS_USER = [
   /^HTTP 401 GET .*\/user$/,
   /^console: Failed to load resource: the server responded with a status of 401 .*\[.*\/user\]$/,
-  /^Angular ERROR 401 .*\/user$/,
 ];
 
 // Patterns for the problems a test expects of an HTTP call: its response with STATUS, the

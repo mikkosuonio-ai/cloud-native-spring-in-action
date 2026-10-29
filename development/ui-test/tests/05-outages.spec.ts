@@ -28,6 +28,8 @@ test('a catalog-service server error leaves an employee logged in', async ({ pag
     const created = page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith('/books'));
     await page.getByRole('button', { name: 'Create Book' }).click();
     expect((await created).status()).toBe(500);
+    // The failed write says so (review finding 39).
+    await expect(page.getByText("The book can't be created. Please try again.")).toBeVisible();
     // Give a redirect to the login page, which the interceptor would start at once, time to begin.
     await page.waitForTimeout(1000);
     await expect(page).toHaveURL(/#\/add-book$/);
