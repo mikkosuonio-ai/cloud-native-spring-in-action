@@ -1,14 +1,15 @@
 # Findings
 
 Issues found while running the smoke tests (`development/script/smoke-test.sh`, run through the
-`smoke-test` skill in `.claude/skills/smoke-test/`).
+`smoke-test` skill in `.claude/skills/smoke-test/`). The open review findings and future work are
+in `development/findings.md`.
 
 ## Open
 
 ### order-service doesn't send an order's event later
 
-Found in the review of 2026-10-19 (`development/plan/review-2026-10-19.md`, finding 3); the
-interim fix is in.
+Found in the review of 2026-10-19 (finding 3 in `development/findings.md`); the interim fix is
+in.
 
 **Symptom:** with RabbitMQ down, `POST /orders` answered 500 after the 5 s connection timeout,
 but the order was saved as ACCEPTED, and its order-accepted event was never sent, so it was never
@@ -43,7 +44,7 @@ its builds worked.
 ### A browser couldn't log in through the compose setup
 
 Found and fixed 2026-10-23 with a headless browser against `smoke-test.sh all edge`
-(`development/plan/review-2026-10-19.md`, finding 35).
+(review finding 35).
 
 **Symptom:** after "Log In" and the credentials, Keycloak answered 400 with "Cookie not found.
 Please make sure cookies are enabled in your browser." The curl-based smoke checks passed.
@@ -140,7 +141,7 @@ the fix. Afterwards, three cold and six warm smoke-test runs all passed.
 
 **Still worth knowing:** messages entered order-service's reactive consumer already acknowledged,
 so any message it dropped wasn't delivered again, and a database error ended the stream for good.
-Since review finding 2 (`development/plan/review-2026-10-19.md`), the consumer takes one message
-at a time and isn't reactive: a failed message is tried three times, logged and dropped, and the
-next one is still consumed. There's no dead-letter queue. Future work item 3 in the smoke-test
-skill covers restart and broker-outage behaviour.
+Since review finding 2, the consumer takes one message at a time and isn't reactive: a failed
+message is tried three times, logged and dropped, and the next one is still consumed. There's no
+dead-letter queue. Future work item 3 in the smoke-test skill covers restart and broker-outage
+behaviour.
