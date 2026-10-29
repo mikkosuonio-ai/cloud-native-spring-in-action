@@ -25,6 +25,17 @@ class SecurityConfigTests {
 	@MockBean
 	ReactiveClientRegistrationRepository clientRegistrationRepository;
 
+	// polar-ui's fonts and other media files load before anyone logs in. No handler serves them
+	// here, so a permitted request ends in 404, a denied one in 401.
+	@Test
+	void whenMediaFileNotAuthenticatedThenPermitted() {
+		webClient
+				.get()
+				.uri("/media/roboto-latin-400-normal.woff2")
+				.exchange()
+				.expectStatus().isNotFound();
+	}
+
 	@Test
 	void whenLogoutNotAuthenticatedAndNoCsrfTokenThen403() {
 		webClient

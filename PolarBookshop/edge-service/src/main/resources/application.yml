@@ -56,7 +56,7 @@ spring:
         - id: spa-route
           uri: ${SPA_URL:http://localhost:9004}
           predicates:
-            - Path=/,/*.css,/*.js,/favicon.ico
+            - Path=/,/*.css,/*.js,/favicon.ico,/media/**
         - id: catalog-route
           uri: ${CATALOG_SERVICE_URL:http://localhost:9001}/books
           predicates:

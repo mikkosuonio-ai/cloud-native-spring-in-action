@@ -22,7 +22,7 @@ future work are in [findings.md](findings.md).
   - the smoke tests on Podman (default, `edge ui`, `quote quote-function`,
     `order dispatcher observability`) and on MicroK8s (`all --k8s`);
   - a summary of the test, coverage and smoke results.
-- **The browser tests** run the full stack: 10 tests, 99 checks with edge's.
+- **The browser tests** run the full stack: 10 tests, 100 checks with edge's.
 - **polar-ui** is the public fork mikkosuonio-ai/polar-ui (clone `/home/ai/devel/polar-ui`), and
   this repository pins `ghcr.io/mikkosuonio-ai/polar-ui:v1.3.0`.
   - The fork's CI runs 35 Karma unit tests and 16 mocked Playwright e2e tests (`e2e/`), scans the

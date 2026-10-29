@@ -1000,6 +1000,10 @@ test_edge() {
     "$(paste -sd ' ' "$WORK/spa-files")"
   local failing; failing=$(spa_files_failing "$WORK/spa-files")
   check "SPA's files served through edge"   True "$([[ -z $failing ]] && echo True)" "$failing"
+  # polar-ui's media files (fonts, from its self-hosting release on) go through spa-route
+  # anonymously too. polar-ui answers 404 for a missing one; edge-service alone would say 401.
+  edge GET /media/smoke-test-missing.woff2 "$anon"
+  check "GET /media/** reaches polar-ui"    404 "$CODE"
   edge GET /books "$anon";                  check "GET /books anonymously"            200 "$CODE"
   check "books returned from catalog"       True "$(json 'len(d) >= 2')"
   check "rate limiter header present"       True "$(grep -qi '^X-RateLimit-Remaining:' "$WORK/headers" && echo True)"
