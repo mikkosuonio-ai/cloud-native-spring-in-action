@@ -151,7 +151,7 @@ services:
   polar-ui:
     depends_on:
       - fluent-bit
-    image: "ghcr.io/mikkosuonio-ai/polar-ui:v1.3.0"
+    image: "ghcr.io/mikkosuonio-ai/polar-ui:v1.4.0"
     container_name: "polar-ui"
     ports:
       - 9004:9004
