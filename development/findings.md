@@ -38,7 +38,7 @@ Spring Native 0.12 is replaced by Boot 3's native support), 17.
 - 24, 38: the update changes the Spring Cloud Function web layer and the gateway.
 - 3's outbox, 26: they touch the R2DBC and Stream APIs that change.
 - 23, 27, 31: application code that doesn't depend on versions.
-- 39–41: polar-ui's code, in the fork. 41 can go before the Angular update, as a cleanup.
+- 39, 40: polar-ui's code, in the fork.
 - 9, 28, 30.
 - 33, 42: a task of their own. Until the overlays use this repository's `k8s/` directories, the
   update doesn't reach staging and production.
@@ -224,11 +224,6 @@ bump here.
 $9.90 shows as `$9.900`, $1234.50 as `$1235`, and from $10,000 up in exponential notation. The
 fork's e2e tests pin it. **Fix:** Angular's `currency` pipe, and change those tests.
 
-### 41. polar-ui has a dead source file that doesn't compile
-
-`src/app/fake-data.ts` sets `publishingYear`, which `Book` doesn't have; nothing imports it.
-**Fix:** delete it before the Angular update.
-
 ### 42. Production's Keycloak can't be deployed, and deploys differently from development
 
 - `kubernetes/platform/production/keycloak/deploy.sh` installs Bitnami's Helm chart 21.4.1 with
@@ -306,9 +301,10 @@ or need a push. Run heavy ones one at a time, after `free -h`.
 
 - Small issues seen in polar-ui's code, not recorded as findings:
   - the spinner never shows while loading, since `books` starts as `[]`;
-  - the page title is still "UiApplication";
   - `index.html` loads fonts and icons from Google Fonts, and the build inlines Google's font CSS,
-    so the page depends on an external service. The tests block both font hosts.
+    so the page depends on an external service. The tests block both font hosts. Self-hosted
+    fonts (tried for v1.3.0) need edge-service to permit and route `/media/**`, where the
+    Angular builder puts them from Angular 18 on; edge-service answers 401 for them now.
 - The anonymous `GET /user` 401 logs an Angular `ERROR` to the console, since `AppComponent`
   subscribes without an error handler. Both test suites allow it; 39's fix can remove it.
 - The fork's `e2e/tests/polar.ts` copies the `problems` fixture, `failedCall` and the card and menu
