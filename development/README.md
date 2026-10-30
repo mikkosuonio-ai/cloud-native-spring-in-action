@@ -24,7 +24,7 @@ future work are in [findings.md](findings.md).
   - a summary of the test, coverage and smoke results.
 - **The browser tests** run the full stack: 10 tests, 100 checks with edge's.
 - **polar-ui** is the public fork mikkosuonio-ai/polar-ui (clone `/home/ai/devel/polar-ui`), and
-  this repository pins `ghcr.io/mikkosuonio-ai/polar-ui:v2.1.0`.
+  this repository pins `ghcr.io/mikkosuonio-ai/polar-ui:v2.1.1`.
   - The fork's CI runs 35 Karma unit tests and 16 mocked Playwright e2e tests (`e2e/`), scans the
     code and the image with Anchore, and publishes `sha-<7>` from `mikkosuonio/development` and
     `:<tag>` from a `v*` tag on that branch.
