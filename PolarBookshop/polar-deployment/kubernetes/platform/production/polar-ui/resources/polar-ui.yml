@@ -16,7 +16,11 @@ spec:
     spec:
       containers:
         - name: polar-ui
-          image: ghcr.io/mikkosuonio-ai/polar-ui:v2.1.1
+          # Upstream's v1, not the fork's v2 as in compose and development: production's
+          # edge-service is still upstream's image, which neither serves v2's /media/** nor
+          # answers the catalog fallback with the [] v2 needs. The two move to this repository's
+          # images together (findings 33 and 43 in development/findings.md).
+          image: ghcr.io/polarbookshop/polar-ui:v1
           imagePullPolicy: Always
           lifecycle:
             preStop:

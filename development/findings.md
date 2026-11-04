@@ -179,6 +179,10 @@ Every staging and production overlay in `polar-deployment/kubernetes/application
   `BOOT-INF/lib/opentelemetry-javaagent-<version>.jar`, as upstream's images have it; since 7 the
   agent is `/workspace/opentelemetry-javaagent.jar`;
 - catalog-service's `patch-tracing.yml` isn't listed in its overlay's `kustomization.yml`.
+- production's polar-ui (`kubernetes/platform/production/polar-ui/resources/polar-ui.yml`) stays
+  on upstream's `ghcr.io/polarbookshop/polar-ui:v1` until then (43): the fork's v2 needs
+  this repository's edge-service, for `/media/**` and the `[]` catalog fallback, and production's
+  edge-service is upstream's `latest`. Both move in the same change.
 
 ### 36. order-service answers the first orders after a PostgreSQL restart with 500
 
