@@ -148,23 +148,35 @@ export async function addBook(page: Page, book: { isbn: string; title: string; p
   expect(response.status(), await response.text()).toBe(201);
 }
 
-// Runs `podman DO...`, then FN, and `podman UNDO...` even when FN fails. Notes UNDO in
+// Runs `podman DO...`, then FN, and `podman UNDO...` even when either fails. Notes UNDO in
 // UI_UNDO_FILE meanwhile, one argument list per line, separated by tabs, so that the smoke
-// script can run it if the test run itself is killed.
+// script can run it if the test run itself is killed, or if UNDO fails here. A failed UNDO
+// fails the test, but doesn't replace the test's own error: it's added to it.
 async function withPodman(doArgs: string[], undoArgs: string[], fn: () => Promise<void>) {
   const note = process.env.UI_UNDO_FILE;
   const line = undoArgs.join('\t');
   if (note) appendFileSync(note, line + '\n');
+  let failed = false, failure: unknown;
   try {
     execFileSync('podman', doArgs, { stdio: 'pipe' });
     await fn();
-  } finally {
-    execFileSync('podman', undoArgs, { stdio: 'pipe' });
-    if (note) {
-      const rest = readFileSync(note, 'utf8').split('\n').filter(l => l && l !== line);
-      writeFileSync(note, rest.map(l => l + '\n').join(''));
-    }
+  } catch (e) {
+    failed = true;
+    failure = e;
   }
+  try {
+    execFileSync('podman', undoArgs, { stdio: 'pipe' });
+  } catch (e) {
+    const undo = `podman ${undoArgs.join(' ')} failed, the smoke script tries it again: ${(e as Error).message}`;
+    if (!failed) throw new Error(undo);
+    if (failure instanceof Error) failure.message += `\n\nAlso, ${undo}`;
+    throw failure;
+  }
+  if (note) {
+    const rest = readFileSync(note, 'utf8').split('\n').filter(l => l && l !== line);
+    writeFileSync(note, rest.map(l => l + '\n').join(''));
+  }
+  if (failed) throw failure;
 }
 
 // Pauses CONTAINER of the stack for the length of FN.
