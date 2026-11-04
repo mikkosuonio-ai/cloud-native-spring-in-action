@@ -81,12 +81,14 @@ restore the opt-out, start Loki with `-reporting.enabled=false`, and bind the OT
 `0.0.0.0:4317` and `0.0.0.0:4318` (needed since Tempo 2.7). The opt-outs can go in before the
 update.
 
-### 14. Testcontainers is too old for `ubuntu-26.04` runners
+### 14. Testcontainers on `ubuntu-26.04` runners
 
 `ubuntu-latest` moves to `ubuntu-26.04` (Docker 29, minimum API 1.44) in November 2026, where
-Testcontainers before 1.21.4 fails with "client version 1.32 is too old". catalog pins 1.21.3,
-order and edge 1.19.8. **Fix:** remove the pins and let Spring Boot manage the version, or 1.21.4
-(which works with the local Podman 4.9) before moving runners. The per-service workflows under
+Testcontainers before 1.21.4 fails with "client version 1.32 is too old". catalog, order and
+edge pin 1.21.4 since the review of 2026-11-04 (46), which also stopped order's 1.19.8 from
+downgrading the 1.21.3 that testcontainers-keycloak 3.9.0 asks for; it works with the local
+Podman 4.9. **Left:** the run on an `ubuntu-26.04` runner (deferred checks), and with Boot 3, let
+Spring Boot manage the version instead of the pins. The per-service workflows under
 `*/.github/workflows`, which don't run here, use `ubuntu-22.04`, unsupported from 2027-04-17.
 
 ### 17. The `build` job uses deprecated action versions
