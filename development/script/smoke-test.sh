@@ -1061,6 +1061,12 @@ ui_undo() {
 # stay in test-results there, for logs.
 test_ui() {
   log "polar-ui (browser)"
+  # Without edge-service and polar-ui, every test would run into its timeout, for ten minutes.
+  local code; code=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "$EDGE/")
+  if [[ $code != 200 ]]; then
+    check "edge-service serves polar-ui"    200 "$code" "the browser tests need it: up ui starts it"
+    return
+  fi
   if ! command -v npm >/dev/null; then
     check "Node.js and npm installed"       True "" "the browser tests need them"
     return

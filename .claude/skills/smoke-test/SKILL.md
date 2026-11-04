@@ -229,8 +229,8 @@ The lock and the records are in `~/.local/state/polar-smoke-test/`.
 ## Browser tests (`ui`)
 
 `ui` runs the Playwright tests in `development/ui-test/` against edge-service, in headless
-Chromium. They need Node.js and npm; without them the section fails with one check that says so,
-and the rest of the run goes on. The script:
+Chromium. They need Node.js and npm, and edge-service serving polar-ui; without either, the
+section fails with one check that says so, and the rest of the run goes on. The script:
 - runs `npm ci` there when `node_modules` is missing or older than the lock file, and
   `playwright install chromium-headless-shell`, which downloads the browser only once;
 - turns each test into one check in the "polar-ui (browser)" section, and so into a JUnit test
