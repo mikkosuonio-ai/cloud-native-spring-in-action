@@ -11,16 +11,22 @@ test('a customer orders a book and finds it in "My Orders"', async ({ page }) =>
   const dialog = page.getByRole('dialog', { name: `Order ${SEEDED.title}` });
   await expect(dialog).toContainText(`By ${SEEDED.author}`);
   await dialog.getByRole('spinbutton', { name: 'Quantity' }).fill('2');
-  const submitted = page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith('/orders'));
+  // The order comes from the route, not from the page's response: Chromium sometimes no longer
+  // has the body of a fetch response once the SPA has read it (review finding 53).
+  let order: { id: number; status: string } | undefined;
+  await page.route(/\/orders$/, async route => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    order = await response.json();
+    await route.fulfill({ response });
+  });
   await dialog.getByRole('button', { name: 'Submit Order' }).click();
-  const response = await submitted;
-  expect(response.status()).toBe(200);
-  const order = await response.json();
-  expect(order.status).toBe('ACCEPTED');
+  await expect.poll(() => order?.status).toBe('ACCEPTED');
 
   await expect(page).toHaveURL(/#\/my-orders$/);
   await expect(page.getByRole('heading', { name: 'My Orders' })).toBeVisible();
-  const card = orderCard(page, order.id);
+  const card = orderCard(page, order!.id);
   await expect(card).toContainText(`Book: ${SEEDED.title}`);
   await expect(card).toContainText(`ISBN: ${SEEDED.isbn}`);
   await expect(card).toContainText('Quantity: 2');
