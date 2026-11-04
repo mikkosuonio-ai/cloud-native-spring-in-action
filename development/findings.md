@@ -4,7 +4,9 @@ The open findings, deferred checks and future work for PolarBookshop in this rep
 development setup works, and why, is in `development/README.md`.
 
 The findings come from the review of 2026-10-19, whose numbers are kept, from the CI build and
-polar-ui testing plans, and from the smoke tests (`PolarBookshop/findings.md` until 2026-10-29).
+polar-ui testing plans, from the smoke tests (`PolarBookshop/findings.md` until 2026-10-29), and
+from the review of 2026-11-04 (43-53; its plan, with each step's commit and CI run, is
+`git show d82740e:development/plan/review-2026-11-04.md`).
 Fixed findings are left out. They are in git history, with how each was verified and its CI runs:
 `git show 6a9cd2a:development/plan/review-2026-10-19.md`, and `PolarBookshop/findings.md` at the
 same commit. Code comments that cite a fixed finding, such as "review finding 37", point there.
@@ -248,7 +250,7 @@ spa-route (`edge-service/src/main/resources/application.yml`) and `SecurityConfi
 such as under `assets/` or from Angular's `public/` directory, gets 401 for them. The browser
 tests would catch it, since they fail on any response of 400 or more. **Fix,** when it comes up:
 add the path to both lists, or route every path that isn't an API's to polar-ui. From the review
-of 2026-11-04 (`development/plan/review-2026-11-04.md`).
+of 2026-11-04.
 
 ### 52. The browser tests time out under memory pressure
 
