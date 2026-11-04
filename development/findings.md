@@ -281,7 +281,13 @@ or need a push. Run heavy ones one at a time, after `free -h`.
 
 - **edge-service and polar-ui on Kubernetes** (`--k8s`), and observability, and quote-service and
   quote-function on Knative (future work 6 in the smoke-test skill). The browser tests take
-  `UI_BASE_URL`, so they can run against the cluster too.
+  `UI_BASE_URL`, but the rest of `development/ui-test/tests/polar.ts` assumes the Podman stack
+  (47): the cleanup and the closed database run `podman exec polar-postgres psql`, the outage
+  tests `podman pause catalog-service`, the undo file holds podman arguments, and Keycloak is
+  `host.docker.internal:8080`, mapped to 127.0.0.1. On the cluster these need a helper that runs
+  the same operations with kubectl (`exec` into PostgreSQL's pod; scaling catalog-service to 0, or
+  a NetworkPolicy, in place of the pause), chosen by an environment variable the smoke script
+  sets, and Keycloak's address from the environment too.
   - The Kubernetes development realm has `sslRequired: external` with the issuer host
     `polar-keycloak`, so a browser very likely can't log in there, as with compose before finding
     35. Check it then.
