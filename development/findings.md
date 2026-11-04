@@ -225,6 +225,22 @@ official image.
 - With any of them, one copy of the realm for Kubernetes, and compose's generated from it or
   checked against it.
 
+### 50. edge-service routes only listed SPA paths
+
+spa-route (`edge-service/src/main/resources/application.yml`) and `SecurityConfig` list `/`,
+`/*.css`, `/*.js`, `/favicon.ico` and `/media/**`. A polar-ui release that adds files elsewhere,
+such as under `assets/` or from Angular's `public/` directory, gets 401 for them. The browser
+tests would catch it, since they fail on any response of 400 or more. **Fix,** when it comes up:
+add the path to both lists, or route every path that isn't an API's to polar-ui. From the review
+of 2026-11-04 (`development/plan/review-2026-11-04.md`).
+
+### 52. The browser tests time out under memory pressure
+
+`8afafad` records local `all ui` runs passing 99 and 98 of 100 checks, a different test timing
+out each time, while the machine stalled with three Claude sessions besides the stack. CI passed.
+**Next time:** keep the traces of the timed-out tests (`logs DIR`) and record the memory pressure
+(`/proc/pressure/memory`) during the run, to see whether the same steps time out.
+
 ## Deferred checks
 
 Checks that couldn't run on the development server (about 4 GB RAM, shared with other sessions)
