@@ -1,4 +1,4 @@
-import { test, expect, SEEDED, addBook, bookCard, logIn, openMenu, uniqueIsbn } from './polar';
+import { test, expect, OWN_AUTHOR, SEEDED, addBook, bookCard, logIn, openMenu, uniqueIsbn } from './polar';
 
 // Each write goes through Angular's HttpClient, which sends the XSRF-TOKEN cookie back as the
 // X-XSRF-TOKEN header itself, and edge-service relays isabelle's token to catalog-service.
@@ -16,7 +16,7 @@ test('an employee adds, edits and removes a book', async ({ page }) => {
   await test.step('add a book', async () => {
     await page.getByRole('textbox', { name: 'ISBN' }).fill(isbn);
     await page.getByRole('textbox', { name: 'Title' }).fill('UI Smoke Test');
-    await page.getByRole('textbox', { name: 'Author' }).fill('Browser Tester');
+    await page.getByRole('textbox', { name: 'Author' }).fill(OWN_AUTHOR);
     await page.getByRole('textbox', { name: 'Publisher' }).fill('Polarsophia');
     await page.getByRole('spinbutton', { name: 'Price' }).fill('7.5');
     const created = page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith('/books'));
@@ -61,7 +61,7 @@ test('an employee adds, edits and removes a book', async ({ page }) => {
 test('removing a book takes it off the list', async ({ page }) => {
   const isbn = uniqueIsbn();
   await logIn(page, 'isabelle');
-  await addBook(page, { isbn, title: 'UI Smoke Test', author: 'Browser Tester', price: 7.5 });
+  await addBook(page, { isbn, title: 'UI Smoke Test', price: 7.5 });
   await page.goto('/#/browse-books');
   await bookCard(page, isbn).getByRole('button', { name: 'Toggle menu' }).click();
   const removed = page.waitForResponse(r => r.request().method() === 'DELETE' && r.url().endsWith(`/books/${isbn}`));

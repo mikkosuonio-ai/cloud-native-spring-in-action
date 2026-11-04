@@ -29,8 +29,10 @@ export function failedCall(method: string, path: string, status: number): RegExp
 
 type Problems = { allow(...patterns: RegExp[]): void };
 
-// Every book the tests create has an ISBN with this prefix; the curl smoke tests use 98 and 99.
+// Every book the tests create has an ISBN with this prefix, and this author; the curl smoke
+// tests use 98 and 99. Real ISBN-13s start with 978 or 979, so the cleanup checks both.
 const OWN_ISBNS = '97';
+export const OWN_AUTHOR = 'Browser Tester';
 
 // Google Fonts: polar-ui serves its fonts and icons itself under /media/ (since v2.0.0). The
 // tests block Google's font hosts without allowing it, so a request to them fails the test.
@@ -94,9 +96,11 @@ function psql(database: string, statement: string): string[] {
 }
 
 // Deletes the tests' books from catalog-service's database directly: a test may have logged
-// out, or broken catalog-service, by the time it ends.
+// out, or broken catalog-service, by the time it ends. Books of the same database that the tests
+// didn't create stay, also those with an ISBN-13.
 function removeOwnBooks() {
-  execFileSync('podman', psql('polardb_catalog', `DELETE FROM book WHERE isbn LIKE '${OWN_ISBNS}%'`), { stdio: 'pipe' });
+  execFileSync('podman', psql('polardb_catalog',
+    `DELETE FROM book WHERE isbn LIKE '${OWN_ISBNS}%' AND author = '${OWN_AUTHOR}'`), { stdio: 'pipe' });
 }
 
 // Logs USERNAME in as a user would: "Log In", Keycloak's form, and back to the SPA.
@@ -135,10 +139,12 @@ export function orderCard(page: Page, id: number) {
   });
 }
 
-// Adds BOOK to the catalog through edge-service, in the session of PAGE's logged-in user.
-export async function addBook(page: Page, book: { isbn: string; title: string; author: string; price: number }) {
+// Adds BOOK to the catalog through edge-service, in the session of PAGE's logged-in user, with
+// the tests' author, so that the cleanup removes it.
+export async function addBook(page: Page, book: { isbn: string; title: string; price: number }) {
   const xsrf = (await page.context().cookies()).find(c => c.name === 'XSRF-TOKEN')?.value ?? '';
-  const response = await page.request.post('/books', { data: book, headers: { 'X-XSRF-TOKEN': xsrf } });
+  const response = await page.request.post('/books',
+    { data: { ...book, author: OWN_AUTHOR }, headers: { 'X-XSRF-TOKEN': xsrf } });
   expect(response.status(), await response.text()).toBe(201);
 }
 

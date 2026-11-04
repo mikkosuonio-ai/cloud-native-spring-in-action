@@ -245,8 +245,8 @@ and the rest of the run goes on. The script:
   the stack broken.
 
 The tests run one at a time, under the script's lock, because some of them break parts of the
-stack for a while. Each test's books have ISBNs starting with 97, and a fixture deletes them from
-catalog's database before and after each test. `npx playwright test` in that directory runs them
+stack for a while. Each test's books have ISBNs starting with 97 and the author `Browser Tester`, and a
+fixture deletes the books with both from catalog's database before and after each test. `npx playwright test` in that directory runs them
 by hand against a running edge stack, but without the lock.
 
 polar-ui's source isn't in this repository. It is developed in the fork

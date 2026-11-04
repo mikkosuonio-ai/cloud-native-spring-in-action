@@ -80,8 +80,9 @@ the review of 2026-10-19. The plans are in git history:
 - **An open bug is an expected failure:** a test for it is marked `test.fail` with a link to its
   finding. It passes as "expected failure", and fails once the bug is fixed, as a reminder to
   remove the mark.
-- **The tests clean up after themselves.** Their books' ISBNs start with 97, and a fixture deletes
-  such books in PostgreSQL before and after each test. Outages they cause are undone in a
+- **The tests clean up after themselves.** Their books' ISBNs start with 97 and their author is
+  `Browser Tester`, and a fixture deletes such books in PostgreSQL before and after each test.
+  The prefix alone would also match real ISBN-13s (45). Outages they cause are undone in a
   `finally`, and noted in an undo file that the script runs if the tests are killed.
 
 ### polar-ui

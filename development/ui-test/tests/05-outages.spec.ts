@@ -1,4 +1,4 @@
-import { test, expect, failedCall, logIn, uniqueIsbn, withCatalogDatabaseClosed, withPaused } from './polar';
+import { test, expect, OWN_AUTHOR, failedCall, logIn, uniqueIsbn, withCatalogDatabaseClosed, withPaused } from './polar';
 
 // These tests break parts of the stack, so they come last, and each waits until edge-service
 // serves the catalog again before it ends.
@@ -21,7 +21,7 @@ test('a catalog-service server error leaves an employee logged in', async ({ pag
   await page.goto('/#/add-book');
   await page.getByRole('textbox', { name: 'ISBN' }).fill(uniqueIsbn());
   await page.getByRole('textbox', { name: 'Title' }).fill('Never Stored');
-  await page.getByRole('textbox', { name: 'Author' }).fill('Browser Tester');
+  await page.getByRole('textbox', { name: 'Author' }).fill(OWN_AUTHOR);
   await page.getByRole('spinbutton', { name: 'Price' }).fill('1');
 
   await withCatalogDatabaseClosed(async () => {
