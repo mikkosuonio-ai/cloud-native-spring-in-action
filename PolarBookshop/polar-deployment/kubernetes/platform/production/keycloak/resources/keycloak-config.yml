@@ -4,6 +4,10 @@ metadata:
   name: keycloak-config
   namespace: keycloak-system
 data:
+  # "sslRequired": "none" below lets Keycloak take logins over plain HTTP, as it gets them here:
+  # nothing in production terminates TLS (see values.yml). It must become "external" together
+  # with TLS in front of Keycloak and edge-service, as part of finding 42 (44) in
+  # development/findings.md; on its own it would lock everyone out of the login page.
   realm-config.json: |
     {
       "id": "879889b2-df11-4724-91cc-e1a1c2c37fed",

@@ -216,6 +216,11 @@ an empty form; `PUT` and `DELETE` probably get 404. Found by reading the code, n
 - The realm is in three copies: compose's `docker/keycloak/`, and development's and production's
   `keycloak-config.yml`. Compose and production set `sslRequired: none`, development `external`
   (see "edge-service and polar-ui on Kubernetes" below).
+- **Production has no TLS (44).** Its realm has `sslRequired: none`, and `values.yml` sets
+  `KC_HTTP_ENABLED=true` and `KC_HOSTNAME_STRICT_HTTPS=false` behind a plain HTTP LoadBalancer on
+  port 80; edge-service's ingress has no `tls` section. Passwords, session cookies and tokens
+  cross the internet unencrypted. `external` alone would lock everyone out of the login page,
+  since no request reaches Keycloak over HTTPS. Comments in the three files point here.
 
 **Fix,** to be decided: one way to deploy Keycloak in development and production, with the
 official image.
@@ -230,6 +235,11 @@ official image.
   and CI just for Keycloak.
 - With any of them, one copy of the realm for Kubernetes, and compose's generated from it or
   checked against it.
+- With any of them, TLS for Keycloak and edge-service in production (44): certificates at the
+  ingress, for example from cert-manager with Let's Encrypt, Keycloak behind the ingress instead of
+  its own LoadBalancer, and then the realm's `sslRequired: external` and Keycloak's proxy
+  settings (`KC_PROXY_HEADERS=xforwarded`, the public `KC_HOSTNAME`) in place of the HTTP-only
+  flags. Only compose keeps `none` (35).
 
 ### 50. edge-service routes only listed SPA paths
 

@@ -3,6 +3,10 @@ commonAnnotations:
   app: polar-keycloak
 image:
   tag: 24.0.5
+# Keycloak serves plain HTTP behind a plain HTTP LoadBalancer (service below), so passwords and
+# tokens cross the internet unencrypted. Finding 42 (44) in development/findings.md: with TLS in
+# front of it, KC_HTTP_ENABLED and KC_HOSTNAME_STRICT_HTTPS go, and the realm's sslRequired
+# becomes "external".
 extraEnvVars:
   - name: KEYCLOAK_EXTRA_ARGS
     value: "--import-realm"
