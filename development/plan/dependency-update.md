@@ -83,7 +83,8 @@ Re-check versions at the start of each step: patch releases will move on.
     images then run the same Java.
   - Temurin supports 25 two years longer than 21.
   - JDK 21 isn't an intermediate step: the services on 17 go straight to 25, after Boot 4.
-- **Gradle 9.8.x,** with a Java toolchain in every `build.gradle`.
+- **Gradle 9.8.x,** with a Java toolchain in every `build.gradle`. (9.9.0 came out on 2026-11-06,
+  during step 1c; it waits for a patch release or the end of the update.)
 - **Builders:** `paketobuildpacks/builder-noble-java-tiny`, pinned to a version as catalog's is,
   for every service. The quote services build native images on it.
 - **Testcontainers** managed by Boot: 1.21.4 on Boot 3.5, then 2.0.x. **testcontainers-keycloak**
@@ -490,7 +491,8 @@ remains.
 | 0.5 Tag `pre-dependency-update` | `5a71b5a` | CI 42397282992; tag created locally, pushed when the user agrees |
 | 1 catalog: Gradle 8.14.6 | `9d4b789` | CI 42397967447; locally 48 tests |
 | 1a catalog: Boot 3.5.16, Cloud 2025.0.3, 25's fixes | `8a23984` | CI 42398791034; locally 48 tests, `all edge` 90, snapshot identical, `all` 80; `test ui` timed out under memory pressure (52) |
-| 1b catalog: Boot 4.1.2, Cloud 2025.1.4 | | |
+| 1b catalog: Boot 4.1.2, Cloud 2025.1.4 | `f64a290` | CI 42402694516 (browser tests and MicroK8s too; catalog pod 243 MiB); locally 50 tests, `all` 80, `all edge` 90, snapshot identical. Found: Jackson 3 refuses books without `version` (fixed in the step) |
+| 1c catalog: Gradle 9.8.2 | | |
 
 ### Baseline (step 0.4, 2026-11-07)
 
