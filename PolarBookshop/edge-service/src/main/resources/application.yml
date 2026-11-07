@@ -84,8 +84,9 @@ spring:
       timeout: 1s
   session:
     timeout: 10m
-    redis:
-      namespace: polar:edge
+    data:
+      redis:
+        namespace: polar:edge
   security:
     oauth2:
       client:

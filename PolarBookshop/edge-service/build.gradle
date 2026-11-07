@@ -1,5 +1,5 @@
 plugins {
-	id 'org.springframework.boot' version '3.5.16'
+	id 'org.springframework.boot' version '4.1.2'
 	id 'io.spring.dependency-management' version '1.1.7'
 	id 'java'
 	id 'jacoco'
@@ -22,7 +22,7 @@ repositories {
 
 ext {
 	set('otelVersion', "2.33.1")
-	set('springCloudVersion', "2025.0.3")
+	set('springCloudVersion', "2025.1.4")
 }
 
 configurations {
@@ -32,11 +32,11 @@ configurations {
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
-	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+	implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-client'
+	implementation 'org.springframework.boot:spring-boot-starter-session-data-redis'
 	implementation 'org.springframework.cloud:spring-cloud-starter-circuitbreaker-reactor-resilience4j'
 	implementation 'org.springframework.cloud:spring-cloud-starter-config'
 	implementation 'org.springframework.cloud:spring-cloud-starter-gateway-server-webflux'
-	implementation 'org.springframework.session:spring-session-data-redis'
 
 	runtimeOnly 'io.github.resilience4j:resilience4j-micrometer'
 	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
@@ -45,10 +45,10 @@ dependencies {
 	// Only on Apple Silicon. Why it's necessary: https://github.com/netty/netty/issues/11020
 	// runtimeOnly 'io.netty:netty-resolver-dns-native-macos:4.1.101.Final:osx-aarch_64'
 
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testImplementation 'org.springframework.security:spring-security-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-security-oauth2-client-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webflux-test'
 	testImplementation 'io.projectreactor:reactor-test'
-	testImplementation 'org.testcontainers:junit-jupiter'
+	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
 }
 
 dependencyManagement {
@@ -72,7 +72,13 @@ tasks.named('bootJar') {
 bootBuildImage {
 	builder = "docker.io/paketobuildpacks/builder-jammy-base"
 	imageName = "${project.name}"
-	environment = ["BP_JVM_VERSION": "17"]
+	// The buildpack's memory calculator gives direct memory 10M, which Netty 4.2's adaptive
+	// allocator (Boot 4) outgrows: responses failed with "Cannot reserve ... bytes of direct
+	// buffer memory". An explicit limit in JAVA_TOOL_OPTIONS takes precedence, and the heap gets
+	// the rest as before.
+	environment = ["BP_JVM_VERSION": "17",
+			"BPE_DELIM_JAVA_TOOL_OPTIONS": " ",
+			"BPE_APPEND_JAVA_TOOL_OPTIONS": "-XX:MaxDirectMemorySize=64M"]
 
 	docker {
 		publishRegistry {

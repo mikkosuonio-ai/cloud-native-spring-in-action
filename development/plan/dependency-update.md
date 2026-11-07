@@ -301,7 +301,12 @@ cleanly. A combined step that fails is split.
   - Testcontainers 2 (`testcontainers-postgresql`, `testcontainers-r2dbc`) and
     testcontainers-keycloak 4.4.x;
   - `OrderJsonTests` on Jackson 3;
-  - OkHttp's `mockwebserver` version.
+  - OkHttp's `mockwebserver` version;
+  - `-XX:MaxDirectMemorySize=64M` through `BPE_APPEND_JAVA_TOOL_OPTIONS`, as edge-service's step b
+    needed: Netty 4.2 outgrows the buildpack's 10M of direct memory (check with `all ui`), and on
+    Kubernetes the 756Mi limit then leaves the heap a little less;
+  - Jackson 3's `FAIL_ON_NULL_FOR_PRIMITIVES` on the order request, as catalog-service's step b
+    found for books.
 
 **config-service:**
 - a, b: Config Server 4.3, then 5.0, and the Tomcat properties. Its `contextLoads` still clones
@@ -439,6 +444,8 @@ on the machine rather than skip a check.
 - Prometheus client 1.x metric names in the dashboards.
 - The OpenTelemetry agent 2.x's semantic conventions.
 - Spring Retry and OkHttp no longer managed by Boot 4.
+- Netty 4.2's direct memory under the buildpack's 10M default (found in edge-service's step b).
+- Jackson 3's stricter defaults, such as null for primitives (found in catalog-service's step b).
 - Gradle 9's removed APIs.
 - RabbitMQ 4's queue deprecations.
 - Native images needing reflection hints.
@@ -497,7 +504,8 @@ remains.
 | 1c catalog: Gradle 9.8.2 | `dd38e3b` | CI 42403799443; locally 50 tests, `all` 80; then `all ui` 100 (486-523 MiB available at least, after the other sessions closed) |
 | 1d catalog: JDK 25, builder 0.0.211, CI's JDK matrix | `41bd2a7` | CI 42405414478 (catalog pod 227 MiB); locally 50 tests, `all` 80, `all ui` 100, snapshot identical; then `all --k8s` 100 (catalog pod 226 MiB) and deferred check 4: a rolling restart of catalog-service under about 16 requests/s, 804 requests all 200, no FailedPreStopHook events |
 | 2 edge: Gradle 8.14.6 | `eddc1a6` | CI 42406936553; locally 11 tests, `all edge` 90, snapshot identical |
-| 2a edge: Boot 3.5.16, Cloud 2025.0.3, Gateway 4.3, raw CSRF tokens | | |
+| 2a edge: Boot 3.5.16, Cloud 2025.0.3, Gateway 4.3, raw CSRF tokens | `3013a0a` | CI 42408414998; locally 15 tests, `all ui` 100, `all edge` 90, `all edge observability` 111, routes and filters through the actuator; snapshot: Security 6's X-XSS-Protection 0, 403 body, logout cookie spelling (accepted). Found: the gateway endpoint is off by default (read-only now) |
+| 2b edge: Boot 4.1.2, Cloud 2025.1.4, Gateway 5 | | |
 
 ### Baseline (step 0.4, 2026-11-07)
 
