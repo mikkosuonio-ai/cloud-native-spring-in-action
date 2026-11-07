@@ -82,15 +82,13 @@ edge-service it has no `extra_hosts` entry in `polar-deployment/docker/docker-co
 adds the name by itself, so neither local runs nor CI show it. **Fix:**
 `extra_hosts: ["host.docker.internal:host-gateway"]`.
 
-### 12. `tempo.yml` is Grafana's demo config, and Tempo and Loki report usage
+### 12. `tempo.yml` is Grafana's demo config
 
 `polar-deployment/docker/observability/tempo/tempo.yml` points at a memcached that compose doesn't
-define (a DNS error every minute), turns on cost attribution, demo retention and the local-blocks
-processor, and dropped `usage_report.reporting_enabled: false`, so every CI run reports usage to
-Grafana Labs. Loki gets no config, and its `analytics` module is on. **Fix:** trim `tempo.yml`,
-restore the opt-out, start Loki with `-reporting.enabled=false`, and bind the OTLP receivers to
-`0.0.0.0:4317` and `0.0.0.0:4318` (needed since Tempo 2.7). The opt-outs can go in before the
-update.
+define (a DNS error every minute), and turns on cost attribution, demo retention and the
+local-blocks processor. **Fix:** trim `tempo.yml`, and bind the OTLP receivers to `0.0.0.0:4317`
+and `0.0.0.0:4318` (needed since Tempo 2.7), with the observability images' update. Tempo and
+Loki no longer report usage to Grafana Labs since step 0.3 of the dependency update.
 
 ### 14. Testcontainers on `ubuntu-26.04` runners
 

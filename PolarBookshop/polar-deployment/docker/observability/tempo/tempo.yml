@@ -1,4 +1,9 @@
 stream_over_http_enabled: true
+
+# No anonymous usage reports to Grafana Labs (finding 12).
+usage_report:
+  reporting_enabled: false
+
 server:
   http_listen_port: 3100
   log_level: info

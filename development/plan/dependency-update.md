@@ -482,4 +482,5 @@ remains.
 | Step | Commit | Verification |
 |---|---|---|
 | 0.1 The plan | `1d168f2` | CI 42368287174 |
-| 0.2 CI actions, permissions, cache keys (17, part of 20) | | |
+| 0.2 CI actions, permissions, cache keys (17, part of 20) | `505240e` | CI 42392520967; each build job saved its own Gradle cache key |
+| 0.3 Tempo and Loki usage-report opt-outs (part of 12) | | |
