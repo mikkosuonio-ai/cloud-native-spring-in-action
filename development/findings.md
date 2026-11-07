@@ -22,7 +22,7 @@ safety net reliable were fixed first. What the review left for the update, and f
 **The order is partly forced.** Spring Boot 3 first, then the JDK:
 - quote-service and quote-function can't go past JDK 17 while they use Spring Native 0.12, whose
   AOT step can't read Java 21 class files;
-- order-service's tests break on JDK 21 under Boot 2.7 (22).
+- order-service's tests broke on JDK 21 under Boot 2.7 (22, gone with Boot 3.5's Byte Buddy).
 
 **Risks to guard:**
 - Spring Security 6, with Boot 3, masks CSRF tokens by default, which breaks SPAs that send the
@@ -34,7 +34,7 @@ safety net reliable were fixed first. What the review left for the update, and f
 - Keycloak 26 on Kubernetes has little room under its 750Mi limit: 525 MiB of its own memory
   after a smoke run, plus about 200 MiB of page cache.
 
-**As part of the update:** 14, 22, 29, 12 (with Tempo and Loki), 20 (the native job, after
+**As part of the update:** 14, 29, 12 (with Tempo and Loki), 20 (the native job, after
 Spring Native 0.12 is replaced by Boot 3's native support).
 
 **After the update:**
@@ -97,9 +97,8 @@ Loki no longer report usage to Grafana Labs since step 0.3 of the dependency upd
 Testcontainers before 1.21.4 fails with "client version 1.32 is too old". catalog, order and
 edge pin 1.21.4 since the review of 2026-11-04 (46), which also stopped order's 1.19.8 from
 downgrading the 1.21.3 that testcontainers-keycloak 3.9.0 asks for; it works with the local
-Podman 4.9. catalog- and edge-service have Boot manage it since the dependency update.
-**Left:** the run on an `ubuntu-26.04` runner (deferred checks), and with Boot 3, let Spring Boot
-manage the version instead of the pin in order. The per-service workflows under
+Podman 4.9. catalog-, edge- and order-service have Boot manage it since the dependency update.
+**Left:** the run on an `ubuntu-26.04` runner (deferred checks). The per-service workflows under
 `*/.github/workflows`, which don't run here, use `ubuntu-22.04`, unsupported from 2027-04-17.
 
 ### 20. Other CI cleanup
@@ -108,12 +107,6 @@ manage the version instead of the pin in order. The per-service workflows under
   book's Chapter16 copies.
 - The smoke tests build quote-service and quote-function as JVM images even in CI, so their
   native images are never tested. A runner has the memory for a native build.
-
-### 22. `OrderServiceTests` breaks on JDK 21
-
-It passes `null` for `StreamBridge`, which Boot 2.7's Byte Buddy 1.12.23 can't mock on JDK 21.
-**Fix:** `ext['byte-buddy.version'] = '1.17.7'` if order-service moves to JDK 21 before Boot 3.
-Goes away with Boot 3.
 
 ### 23. Unknown order ids in order-dispatched events are dropped silently
 

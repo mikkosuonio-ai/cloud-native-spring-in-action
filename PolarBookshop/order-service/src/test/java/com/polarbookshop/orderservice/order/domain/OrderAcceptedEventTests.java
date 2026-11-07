@@ -18,7 +18,6 @@ import reactor.core.publisher.Mono;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.cloud.stream.binder.test.TestChannelBinderConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -29,6 +28,7 @@ import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
@@ -52,11 +52,11 @@ class OrderAcceptedEventTests {
 	@Autowired
 	private VisibilityProbe probe;
 
-	@MockBean
+	@MockitoBean
 	private BookClient bookClient;
 
 	// SecurityConfig needs one; without a web server, no token is ever decoded.
-	@MockBean
+	@MockitoBean
 	private ReactiveJwtDecoder jwtDecoder;
 
 	@DynamicPropertySource

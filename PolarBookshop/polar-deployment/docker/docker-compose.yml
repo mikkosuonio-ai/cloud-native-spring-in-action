@@ -53,6 +53,7 @@ services:
       - JAVA_TOOL_OPTIONS=-javaagent:/workspace/opentelemetry-javaagent.jar
       - OTEL_SERVICE_NAME=order-service
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
       - OTEL_METRICS_EXPORTER=none
       - OTEL_LOGS_EXPORTER=none
       - POLAR_CATALOG_SERVICE_URI=http://catalog-service:9001
