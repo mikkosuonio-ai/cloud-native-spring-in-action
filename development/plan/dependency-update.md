@@ -515,7 +515,8 @@ remains.
 | 3d dispatcher: JDK 25, builder noble-java-tiny 0.0.211 | `8426955` | CI 42417533730, attempt 2: attempt 1's observability job was cancelled after 30 minutes without a log, its later steps never started (probably a lost runner), and the rerun took 3.5 minutes; locally 5 tests (3 skipped), line 84.6%, `all order dispatcher observability` 80, `all --k8s` 100 (dispatcher pod 208 MiB); image 414 MB (387) |
 | 4 order: Gradle 8.14.6 | `b2b79b6` | CI 42421613912; locally 23 tests, line 97.1%, `all ui` 100, snapshot identical |
 | 4a order: Boot 3.5.16, Cloud 2025.0.3, jakarta, Flyway 11 | `fb3ac10` | CI 42422748096; locally 23 tests, line 97.1%, `all ui` 100, `all order dispatcher observability` 80, `all` 80, deferred check 3; snapshot: order's X-XSS-Protection (accepted) |
-| 4b order: Boot 4.1.2, Cloud 2025.1.4, Testcontainers 2 | | |
+| 4b order: Boot 4.1.2, Cloud 2025.1.4, Testcontainers 2 | `2e1a834` | CI 42425273061; locally 23 tests, line 97.1%, `all ui` 100, `all order dispatcher observability` 80, `all` 80, `all --k8s` 100 (order pod 272 MiB), deferred check 3; snapshot: WebFlux error timestamp ends in Z (accepted). Found: Boot 4 needs `spring-boot-starter-webclient` for `WebClient.Builder` |
+| 4c order: Gradle 9.8.2 | | |
 
 Coverage: the commit messages of 2a to 2d give edge-service's "97% line coverage", which is
 JaCoCo's instruction coverage. Its line coverage is 95.8% (95.7% in the baseline). From 3a on,

@@ -67,6 +67,8 @@ dependencies {
 	testImplementation 'org.testcontainers:testcontainers-postgresql'
 	testImplementation 'org.testcontainers:testcontainers-r2dbc'
 	testImplementation 'org.springframework.cloud:spring-cloud-stream-test-binder'
+	// Gradle 9 no longer puts a JUnit Platform launcher on the test runtime classpath.
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 dependencyManagement {
