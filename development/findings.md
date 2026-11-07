@@ -15,9 +15,9 @@ Paths are relative to `PolarBookshop/` unless they start with `development/` or 
 
 ## The dependency update
 
-All components are to be updated, Spring Boot and the JDK above all, in a plan of its own. The
-findings that make its safety net reliable were fixed first. What the review left for the
-update, and for after it:
+All components are to be updated, Spring Boot and the JDK above all, as
+[plan/dependency-update.md](plan/dependency-update.md) describes. The findings that make its
+safety net reliable were fixed first. What the review left for the update, and for after it:
 
 **The order is partly forced.** Spring Boot 3 first, then the JDK:
 - quote-service and quote-function can't go past JDK 17 while they use Spring Native 0.12, whose
@@ -44,12 +44,21 @@ Spring Native 0.12 is replaced by Boot 3's native support), 17.
 - 33, 42: a task of their own. Until the overlays use this repository's `k8s/` directories, the
   update doesn't reach staging and production.
 
-**polar-ui's Angular and Node update** went first, in the fork, one major version at a time
-(its `plan/angular-update.md`, which also tracks its vulnerability scans). Its releases v1.3.0 to v2.1.0 (2026-10-29) took it from Angular 13
-and Node.js 16 to Angular 22 and Node.js 24, and fixed 39, 40 and 41. Each was a tag bump here,
-verified by the browser tests. The SPA still sends the raw `XSRF-TOKEN` cookie value as
-`X-XSRF-TOKEN` on writes, and as `_csrf` in the logout form; edge-service's Boot 3 step has to
-accept both.
+**polar-ui's Angular and Node update is finished.** It went first, in the fork, one major
+version at a time: releases v1.3.0 to v2.1.1 (2026-10-29 and 30) took it from Angular 13 and
+Node.js 16 to Angular 22 and Node.js 24, and fixed 39, 40 and 41. Each was a tag bump here,
+verified by the browser tests. Its plan is in the fork's history
+(`git show fbf8cec:plan/angular-update.md`), and what it left is in the fork's
+`plan/future-work.md`. The backend update runs against v2.1.1, which needs from edge-service:
+- the raw `XSRF-TOKEN` cookie value accepted as `X-XSRF-TOKEN` on writes, and as `_csrf` in the
+  logout form, a plain HTML form POST. Spring Security 6 expects masked tokens by default, so
+  edge-service's Boot 3 step has to accept both raw;
+- `GET /user` answering 401 for an anonymous visitor, which v2.1.1 handles quietly;
+- the `[]` catalog fallback for `GET /books`, without which its book list spins for good;
+- `/`, `/*.css`, `/*.js`, `/favicon.ico` and `/media/**` permitted and routed to polar-ui (50).
+
+Production's polar-ui stays on upstream's v1 with upstream's edge-service (33, 43), so the update
+doesn't reach it.
 
 ## Open findings
 

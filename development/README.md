@@ -12,6 +12,8 @@ future work are in [findings.md](findings.md).
 - **`script/watch-run.sh`** follows a GitHub Actions run until it completes.
 - **`ui-test/`** has the browser tests of polar-ui (Playwright), run by `smoke-test.sh … ui`.
 - **`findings.md`:** open findings, deferred checks and future work.
+- **`plan/dependency-update.md`:** the plan for updating Spring Boot, the JDK and the rest,
+  with its progress.
 
 ## Where things are
 
