@@ -34,7 +34,7 @@ safety net reliable were fixed first. What the review left for the update, and f
   after a smoke run, plus about 200 MiB of page cache.
 
 **As part of the update:** 14, 22, 25, 29, 12 (with Tempo and Loki), 20 (the native job, after
-Spring Native 0.12 is replaced by Boot 3's native support), 17.
+Spring Native 0.12 is replaced by Boot 3's native support).
 
 **After the update:**
 - 24, 38: the update changes the Spring Cloud Function web layer and the gateway.
@@ -102,18 +102,10 @@ Podman 4.9. **Left:** the run on an `ubuntu-26.04` runner (deferred checks), and
 Spring Boot manage the version instead of the pins. The per-service workflows under
 `*/.github/workflows`, which don't run here, use `ubuntu-22.04`, unsupported from 2027-04-17.
 
-### 17. The `build` job uses deprecated action versions
-
-`actions/checkout@v4` and `actions/setup-java@v4` in the `build` job (and the native job); the
-other jobs use v5. Every run warns that Node.js 20 is deprecated.
-
 ### 20. Other CI cleanup
 
-- The build jobs grant `security-events: write`, which nothing uses.
 - The disabled `native-build` job calls a `nativeBuild` task that doesn't exist, and targets the
   book's Chapter16 copies.
-- All build jobs share one Gradle cache key, so probably only one project's dependencies are
-  cached.
 - The smoke tests build quote-service and quote-function as JVM images even in CI, so their
   native images are never tested. A runner has the memory for a native build.
 

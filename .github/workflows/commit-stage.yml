@@ -22,7 +22,6 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -34,13 +33,18 @@ jobs:
         working-directory: ${{ matrix.project }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Set up JDK
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 21
           cache: gradle
+          # A cache per project. settings.gradle also keeps the key apart from the images
+          # job's, whose image build needs other dependencies than the tests.
+          cache-dependency-path: |
+            ${{ matrix.project }}/*.gradle
+            ${{ matrix.project }}/gradle/wrapper/gradle-wrapper.properties
       - name: Build, unit tests and integration tests
         run: |
           chmod +x gradlew
@@ -73,7 +77,6 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -90,13 +93,18 @@ jobs:
         working-directory: ${{ matrix.project }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
           cache: gradle
+          # A cache per project. settings.gradle also keeps the key apart from the images
+          # job's, whose image build needs other dependencies than the tests.
+          cache-dependency-path: |
+            ${{ matrix.project }}/*.gradle
+            ${{ matrix.project }}/gradle/wrapper/gradle-wrapper.properties
       - name: Build, unit tests and integration tests
         run: |
           chmod +x gradlew
@@ -136,7 +144,7 @@ jobs:
       KUBERNETES_VERSION: 1.35.0
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Install kubeconform
         run: |
           curl -sSfL -o "$RUNNER_TEMP/kubeconform.tar.gz" \
@@ -186,9 +194,9 @@ jobs:
           - { service: quote-function, image: quote-function }
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Set up JDKs
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: |
@@ -243,7 +251,7 @@ jobs:
           - order dispatcher observability
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Install podman-compose
         run: |
           sudo apt-get update -q
@@ -335,7 +343,7 @@ jobs:
       KUBECTL: /snap/microk8s/current/kubectl
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Install PyYAML
         run: |
           sudo apt-get update -q
@@ -448,7 +456,7 @@ jobs:
       actions: read # lists the run's artifacts for the links in the summary
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Download reports
         uses: actions/download-artifact@v8
         with:
@@ -474,7 +482,6 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: read
-      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -484,7 +491,7 @@ jobs:
         ]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up GraalVM
         uses: graalvm/setup-graalvm@v1
         with:

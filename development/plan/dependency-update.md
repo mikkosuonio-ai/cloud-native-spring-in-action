@@ -481,4 +481,5 @@ remains.
 
 | Step | Commit | Verification |
 |---|---|---|
-| 0.1 The plan | | |
+| 0.1 The plan | `1d168f2` | CI 42368287174 |
+| 0.2 CI actions, permissions, cache keys (17, part of 20) | | |
