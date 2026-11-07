@@ -262,7 +262,6 @@ or need a push. Run heavy ones one at a time, after `free -h`.
 | Exemplars, native histograms, and the apps' logs in Loki | 28 | The full observability stack (about 2.65 GiB), or CI |
 | Testcontainers 1.21.4 on an `ubuntu-26.04` runner | 14 | A CI run on `ubuntu-26.04` |
 | order-service's book lookups after a broker outage | 3 | `smoke-test.sh up order`, then stop and start `polar-rabbitmq` a few times with orders in between. Seen once (REJECTED orders until order-service restarted), before the bridge MAC fix (34); a recurrence would have another cause |
-| A rolling restart under load with the sleep preStop hook | 4 | MicroK8s: `kubectl rollout restart` of catalog-service under 20 requests/s fails no requests and gives no FailedPreStopHook events |
 | Runs on the default branch aren't cancelled | 18 | Two pushes to `mikkosuonio/development`, the default branch, in quick succession: both runs finish |
 | Smoke tests from two worktrees at once | 10 | `smoke-test.sh all config` in two worktrees at about the same time. The second waits, takes the stack over and rebuilds config-service's image, and the first's `test config` then refuses the stack |
 | Native images of quote-service and quote-function, `FunctionInputExceptionHandler` among them | 20, 24 | More memory than the development server has; a CI runner may do. `./gradlew bootBuildImage` without the smoke test's JVM override, then the POETRY request |
