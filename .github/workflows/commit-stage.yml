@@ -34,7 +34,7 @@ jobs:
           - { project: PolarBookshop/dispatcher-service, java: 17 }
           - { project: PolarBookshop/config-service, java: 17 }
           - { project: PolarBookshop/order-service, java: 17 }
-          - { project: PolarBookshop/edge-service, java: 17 }
+          - { project: PolarBookshop/edge-service, java: 25 }
     defaults:
       run:
         working-directory: ${{ matrix.project }}

@@ -105,7 +105,8 @@ JDKS=$HOME/.sdkman/candidates/java
 JDK_17=${SMOKE_JDK_17:-$JDKS/17.0.20-tem}
 JDK_25=${SMOKE_JDK_25:-$JDKS/25.0.5.0+8-tem}
 # The services moved to JDK 25 by the dependency update (development/plan/dependency-update.md).
-declare -A JDK=([quote-service]=$JDK_17 [quote-function]=$JDK_17 [catalog-service]=$JDK_25)
+declare -A JDK=([quote-service]=$JDK_17 [quote-function]=$JDK_17 [catalog-service]=$JDK_25
+                [edge-service]=$JDK_25)
 DEFAULT_JDK=${SMOKE_JDK_21:-$JDKS/21.0.12+1.1-tem}
 has() { [[ " ${SERVICES[*]} " == *" $1 "* ]]; }
 needs_keycloak() { has catalog-service; }

@@ -506,7 +506,8 @@ remains.
 | 2 edge: Gradle 8.14.6 | `eddc1a6` | CI 42406936553; locally 11 tests, `all edge` 90, snapshot identical |
 | 2a edge: Boot 3.5.16, Cloud 2025.0.3, Gateway 4.3, raw CSRF tokens | `3013a0a` | CI 42408414998; locally 15 tests, `all ui` 100, `all edge` 90, `all edge observability` 111, routes and filters through the actuator; snapshot: Security 6's X-XSS-Protection 0, 403 body, logout cookie spelling (accepted). Found: the gateway endpoint is off by default (read-only now) |
 | 2b edge: Boot 4.1.2, Cloud 2025.1.4, Gateway 5 | `80b527b` | CI 42410352021; locally 15 tests, `all ui` 100, `all edge` 90, `all edge observability` 111, routes and filters, sessions under `polar:edge`, snapshot identical. Found: Netty 4.2 outgrows the buildpack's 10M of direct memory (64M now) |
-| 2c edge: Gradle 9.8.2 | | |
+| 2c edge: Gradle 9.8.2 | `ae19c1c` | CI 42411275241; locally 15 tests, `all ui` 100 |
+| 2d edge: JDK 25, builder noble-java-tiny 0.0.211 | | |
 
 ### Baseline (step 0.4, 2026-11-07)
 
