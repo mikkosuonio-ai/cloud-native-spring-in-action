@@ -82,6 +82,7 @@ services:
       - JAVA_TOOL_OPTIONS=-javaagent:/workspace/opentelemetry-javaagent.jar
       - OTEL_SERVICE_NAME=dispatcher-service
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
       - OTEL_METRICS_EXPORTER=none
       - OTEL_LOGS_EXPORTER=none
       - SPRING_CLOUD_CONFIG_URI=http://config-service:8888

@@ -1,13 +1,18 @@
 plugins {
-	id 'org.springframework.boot' version '2.7.18'
-	id 'io.spring.dependency-management' version '1.0.15.RELEASE'
+	id 'org.springframework.boot' version '3.5.16'
+	id 'io.spring.dependency-management' version '1.1.7'
 	id 'java'
 	id 'jacoco'
 }
 
 group = 'com.polarbookshop'
 version = '0.0.1-SNAPSHOT'
-sourceCompatibility = '17'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
 
 description = 'Provides functionality for dispatching orders.'
 
@@ -16,8 +21,8 @@ repositories {
 }
 
 ext {
-	set('otelVersion', "1.33.3")
-	set('springCloudVersion', "2021.0.9")
+	set('otelVersion', "2.33.1")
+	set('springCloudVersion', "2025.0.3")
 }
 
 configurations {
@@ -41,14 +46,7 @@ dependencies {
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testImplementation 'io.projectreactor:reactor-test'
-	testImplementation("org.springframework.cloud:spring-cloud-stream") {
-		artifact {
-			name = "spring-cloud-stream"
-			extension = "jar"
-			type ="test-jar"
-			classifier = "test-binder"
-		}
-	}
+	testImplementation 'org.springframework.cloud:spring-cloud-stream-test-binder'
 }
 
 dependencyManagement {
