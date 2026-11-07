@@ -155,17 +155,19 @@ Each item is a commit of its own, verified, and pushed when the user says so.
    - image sizes and startup times;
    - the API snapshot.
 
-   The snapshot comes from a new `development/script/api-snapshot.sh`. It runs against a stack
-   that `smoke-test.sh all edge` started, and logs in as `test_edge` does (the smoke script's
-   `edge_login`, through Keycloak's form, into a cookie jar). Through edge-service, anonymous and
-   as isabelle (employee) and bjorn (customer), it records status, `Content-Type`, the
-   `Set-Cookie` names and attributes, and the body of:
+   The snapshot comes from `smoke-test.sh snapshot DIR`, a command of the smoke script so that
+   it shares the script's lock and login (`edge_login`). It runs against a stack that
+   `smoke-test.sh all edge` started. Through edge-service, anonymous and as isabelle (employee)
+   and bjorn (customer), it records the status, the response headers (`Set-Cookie` values
+   masked) and the body of:
    - `GET /user`, `POST /logout`;
    - `GET`, `POST`, `PUT` and `DELETE` on `/books` and `/books/{isbn}`, valid and invalid;
    - `GET` and `POST /orders`;
    - the catalog fallback, with catalog-service paused.
 
    Dates, ids and tokens are masked, and each response goes to a file in a directory to diff.
+   The baseline is in `development/plan/api-snapshot/`; a step compares with
+   `diff -r development/plan/api-snapshot DIR`.
 5. **A tag, `pre-dependency-update`,** on the last commit of step 0, to compare with and to go back
    to. Pushed only when the user agrees.
 
@@ -483,4 +485,52 @@ remains.
 |---|---|---|
 | 0.1 The plan | `1d168f2` | CI 42368287174 |
 | 0.2 CI actions, permissions, cache keys (17, part of 20) | `505240e` | CI 42392520967; each build job saved its own Gradle cache key |
-| 0.3 Tempo and Loki usage-report opt-outs (part of 12) | | |
+| 0.3 Tempo and Loki usage-report opt-outs (part of 12) | `79e00a2` | CI 42393361145; locally Loki and Tempo alone (the stack didn't fit) |
+| 0.4 Baseline, `smoke-test.sh snapshot`, pod memory in `--k8s` runs | | |
+
+### Baseline (step 0.4, 2026-11-07)
+
+Before the first service step: catalog-service on Boot 3.5.6 and JDK 21, the others on Boot 2.7
+and JDK 17; polar-ui v2.1.1.
+
+**Tests and coverage,** from CI run 42393361145:
+
+| Project | Tests | Skipped | Line coverage | Branch coverage |
+|---|--:|--:|--:|--:|
+| catalog-service | 48 | 0 | 89.0% | 100.0% |
+| config-service | 2 | 1 | 33.3% | n/a |
+| dispatcher-service | 5 | 3 | 84.6% | n/a |
+| edge-service | 11 | 0 | 95.7% | 50.0% |
+| order-service | 23 | 0 | 97.1% | 75.0% |
+| quote-function | 9 | 0 | 94.3% | n/a |
+| quote-service | 6 | 0 | 91.3% | n/a |
+
+**Smoke checks,** from the same run: MicroK8s 100; Podman `catalog order dispatcher config` 80,
+`edge ui` 100, `order dispatcher observability` 80, `quote quote-function` 39. Locally `all edge`
+90 and `all` 80.
+
+**Container memory** (`podman stats`, locally, right after the tests, MB):
+
+| Container | `all` | `all edge` |
+|---|--:|--:|
+| catalog-service | 337 | 321 |
+| order-service | 326 | 348 |
+| dispatcher-service | 270 | |
+| config-service | 287 | |
+| edge-service | | 317 |
+| polar-keycloak | 774 | 583 |
+| polar-rabbitmq | 81 | 80 |
+| polar-postgres | 20 | 20 |
+
+`all ui` didn't fit beside four Claude sessions (310 MiB available with the edge stack up), so
+its memory is left to a quieter moment. Pod memory on MicroK8s: the smoke script prints it after
+`--k8s` runs since this step; the baseline is CI's figure for this step's commit.
+
+**Images** (MB): catalog 326, order 400, edge 394, dispatcher 387, config 385.
+
+**Startup** ("Started … in", s, locally, with the stack starting at once, so only roughly
+comparable): `all`: catalog 31.9, order 33.0, dispatcher 26.6, config 14.3; `all edge`: catalog
+21.2, order 25.4, edge 6.1.
+
+**API snapshot:** `development/plan/api-snapshot/`, 31 responses, taken after `all edge`. Two
+snapshots in a row were identical.

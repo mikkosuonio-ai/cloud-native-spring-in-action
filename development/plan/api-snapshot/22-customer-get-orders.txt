@@ -1,0 +1,16 @@
+status: 200
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+content-type: application/json
+expires: 0
+pragma: no-cache
+referrer-policy: no-referrer
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-ratelimit-burst-capacity: 20
+x-ratelimit-replenish-rate: 10
+x-ratelimit-requested-tokens: 1
+x-xss-protection: 1 ; mode=block
+
+[
+  list of objects, fields in order: id: number, bookIsbn: string, bookName: null|string, bookPrice: null|number, quantity: number, status: string, createdDate: string, lastModifiedDate: string, createdBy: string, lastModifiedBy: string, version: number
+]

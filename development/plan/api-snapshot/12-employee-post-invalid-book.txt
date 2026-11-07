@@ -1,0 +1,19 @@
+status: 400
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+content-type: application/json
+expires: 0
+pragma: no-cache
+referrer-policy: no-referrer
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-ratelimit-burst-capacity: 20
+x-ratelimit-replenish-rate: 10
+x-ratelimit-requested-tokens: 1
+x-xss-protection: 0
+
+{
+  "author": "The book author must be defined.",
+  "isbn": "The ISBN format must be valid.",
+  "price": "The book price must be greater than zero.",
+  "title": "The book title must be defined."
+}

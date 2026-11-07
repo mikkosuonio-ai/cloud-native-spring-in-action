@@ -4,6 +4,7 @@
 # Usage: smoke-test.sh up|test|down|all|build [catalog] [order] [dispatcher] [config] [edge] [ui]
 #                      [quote] [quote-function] [observability] [--rebuild] [--k8s]
 #        smoke-test.sh logs DIR [--k8s]
+#        smoke-test.sh snapshot DIR
 #   build   build the images of the given services, always, and not of the services they need
 #   up      build missing images (or all selected with --rebuild), start backing services + apps
 #   test    run the smoke tests (with ui, also the browser tests) against the running stack
@@ -12,6 +13,9 @@
 #   logs    write the containers' state and logs, and the browser tests' traces and screenshots,
 #           to DIR (--k8s: the namespace's resources, events and deployment logs), for example
 #           after a failed run
+#   snapshot  write the API as polar-ui sees it through edge-service to DIR, one file per
+#           request, with ids, dates and tokens masked, to diff with an earlier snapshot; needs
+#           the stack of all edge, and pauses catalog-service for the fallback
 #   help    print this text, as does a call without a command
 #
 # Services default to "catalog order dispatcher config"; edge, quote and quote-function must
@@ -40,6 +44,7 @@ set -uo pipefail
 usage() { sed -n '2,/^set /{/^#/p}' "$0"; }
 CMD=
 LOGS_DIR=
+SNAP_DIR=
 REBUILD=0
 K8S=0
 SELECTED=()
@@ -47,6 +52,7 @@ while (( $# )); do
   case $1 in
     up|test|down|all|build)  CMD=$1 ;;
     logs)                    CMD=logs LOGS_DIR=${2:-}; [[ $LOGS_DIR == [^-]* ]] || { usage; exit 2; }; shift ;;
+    snapshot)                CMD=snapshot SNAP_DIR=${2:-}; [[ $SNAP_DIR == [^-]* ]] || { usage; exit 2; }; shift ;;
     help|-h|--help)          usage; exit 0 ;;
     --rebuild)               REBUILD=1 ;;
     --k8s)                   K8S=1 ;;
@@ -61,6 +67,7 @@ done
   || SELECTED+=(catalog order dispatcher config)
 selected() { [[ " ${SELECTED[*]} " == *" $1 "* ]]; }
 selected ui && ! selected edge && SELECTED+=(edge)
+(( K8S )) && [[ $CMD == snapshot ]] && { echo "snapshot isn't supported with --k8s" >&2; exit 2; }
 if (( K8S )); then
   for a in edge ui quote quote-function observability; do
     selected $a && { echo "$a isn't supported with --k8s yet" >&2; exit 2; }
@@ -220,7 +227,7 @@ check_owner() {
   [[ -z $owner || $owner == "$ROOT" ]] && return
   case $CMD in
     up|all) echo "Taking over the stack started from $owner" ;;
-    test|logs) echo "The stack was started from $owner. Run all to start this worktree's stack." >&2; exit 2 ;;
+    test|logs|snapshot) echo "The stack was started from $owner. Run all to start this worktree's stack." >&2; exit 2 ;;
     # A removed worktree no longer owns its stack.
     down) [[ -d $owner ]] && { echo "The stack was started from $owner, so it's left running. Run down there to remove it."; exit 0; } ;;
   esac
@@ -640,6 +647,34 @@ test_k8s_restarts() {
     check "$s container restarts" 0 "$(json "sum(c['restartCount'] for p in d['items']
       if p['metadata']['name'].startswith('$s-') for c in p['status'].get('containerStatuses', []))")"
   done
+  k8s_memory
+}
+
+# Prints each pod's memory after the tests, as the kubelet counts it against the limit: the
+# working set, the pod cgroup's memory.current without its inactive page cache. Not a check:
+# the figures are for comparing runs, such as before and after a dependency update. MicroK8s
+# runs on this host, so the cgroups are readable here.
+k8s_memory() {
+  echo "Pod memory after the tests (working set):"
+  printf '%s' "$BODY" > "$WORK/pods.json"
+  python3 -I - "$WORK/pods.json" <<'EOF'
+import glob, json, sys
+for p in sorted(json.load(open(sys.argv[1]))["items"], key=lambda p: p["metadata"]["name"]):
+    uid = p["metadata"]["uid"]
+    u = uid.replace("-", "_")
+    dirs = (glob.glob(f"/sys/fs/cgroup/kubepods.slice/kubepods-pod{u}.slice")
+            + glob.glob(f"/sys/fs/cgroup/kubepods.slice/kubepods-*.slice/kubepods-*-pod{u}.slice")
+            + glob.glob(f"/sys/fs/cgroup/kubepods/pod{uid}")
+            + glob.glob(f"/sys/fs/cgroup/kubepods/*/pod{uid}"))
+    limits = [c.get("resources", {}).get("limits", {}).get("memory", "none") for c in p["spec"]["containers"]]
+    try:
+        current = int(open(f"{dirs[0]}/memory.current").read())
+        stat = dict(line.split() for line in open(f"{dirs[0]}/memory.stat"))
+        used = f"{(current - int(stat.get('inactive_file', 0))) // 2**20} MiB"
+    except (IndexError, OSError, ValueError):
+        used = "n/a (cgroup not found)"
+    print(f"  {p['metadata']['name']:<45} {used:>8}, limit {', '.join(limits)}")
+EOF
 }
 
 # ---- test helpers -----------------------------------------------------------
@@ -1044,6 +1079,172 @@ test_edge() {
   check "books returned again"              True "$(json 'len(d) >= 2')"
 }
 
+# ---- API snapshot (snapshot) ---------------------------------------------------
+# Writes what polar-ui sees of the API through edge-service to SNAP_DIR, one file per request:
+# the status, the response headers and the body, with what changes from run to run masked
+# (ids, dates, user ids, tokens, session cookies, the rate limiter's remaining tokens). Field
+# order and number formats are kept as sent, so that `diff -r OLD NEW` shows a changed
+# serialization; a date keeps its format, with its digits masked. Lists of objects show each
+# element's fields and types, and the seeded book (SEEDED_ISBN) in full. Validation error maps
+# (all values strings) and lists of strings, such as roles, are sorted: their order varies.
+SNAP_ISBN=9600000001        # the snapshot's own book; the other tests use 97, 98 and 99
+SNAP_MISSING=9600000009     # a book that never exists
+SEEDED_ISBN=1234567891
+SNAP_N=0
+
+snap() { # name: writes the last edge or snap_form response as SNAP_DIR/NN-name.txt
+  printf -v SNAP_N '%02d' $((10#$SNAP_N + 1))
+  python3 -I - "$SNAP_DIR/$SNAP_N-$1.txt" "$CODE" "$WORK/headers" "$WORK/body" "$SEEDED_ISBN" <<'EOF'
+import json, re, sys
+from urllib.parse import urlsplit, parse_qsl
+out, code, headers_file, body_file, seeded = sys.argv[1:]
+MASKED_KEYS = {"id", "createdDate", "lastModifiedDate", "timestamp", "requestId", "createdBy",
+               "lastModifiedBy"}
+DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T")
+VARYING_HEADERS = {"date", "content-length", "transfer-encoding", "x-ratelimit-remaining"}
+
+def shape(s):  # a date's format without its value: digit runs become N
+    return re.sub(r"[0-9]+", "N", s)
+
+class Num(str):  # a number as its JSON text
+    pass
+
+def render(v, ind="", key=None):
+    if isinstance(v, dict):
+        if not v:
+            return "{}"
+        keys = sorted(v) if all(isinstance(x, str) for x in v.values()) else list(v)
+        items = [f'{ind}  {json.dumps(k)}: {render(v[k], ind + "  ", k)}' for k in keys]
+        return "{\n" + ",\n".join(items) + "\n" + ind + "}"
+    if isinstance(v, list):
+        if not v:
+            return "[]"
+        if all(isinstance(x, dict) for x in v):
+            fields = {}
+            for x in v:
+                for k, y in x.items():
+                    fields.setdefault(k, set()).add(type_name(y))
+            lines = [f"{ind}  list of objects, fields in order: "
+                     + ", ".join(f"{k}: {'|'.join(sorted(t))}" for k, t in fields.items())]
+            lines += [f"{ind}  seeded book: {render(x, ind + '  ')}" for x in v if x.get("isbn") == seeded]
+            return "[\n" + ",\n".join(lines) + "\n" + ind + "]"
+        if all(isinstance(x, str) for x in v):
+            v = sorted(v)
+        return "[" + ", ".join(render(x, ind, key) for x in v) + "]"
+    if key in MASKED_KEYS and v is not None:
+        return f"<string {shape(v)}>" if isinstance(v, str) and DATE.match(v) else f"<{type_name(v)}>"
+    if isinstance(v, Num):
+        return str(v)
+    return json.dumps(v)
+
+def type_name(v):
+    return ("null" if v is None else "bool" if isinstance(v, bool) else "number" if isinstance(v, Num)
+            else "string" if isinstance(v, str) else "list" if isinstance(v, list) else "object")
+
+def header(name, value):
+    if name == "set-cookie":
+        cookie, _, attrs = value.partition(";")
+        cname, _, cvalue = cookie.partition("=")
+        return f"{cname.strip()}=<{'empty' if not cvalue else 'value'}>;{attrs}"
+    if name == "location":
+        url = urlsplit(value)
+        query = "&".join(f"{k}=<value>" for k, _ in parse_qsl(url.query, keep_blank_values=True))
+        return url._replace(query=query).geturl()
+    return value
+
+lines = [f"status: {code}"]
+try:
+    raw = open(headers_file, encoding="utf-8", errors="replace").read()
+except FileNotFoundError:
+    raw = ""
+# The last response's headers only, without the status line.
+block = re.split(r"\r?\n\r?\n", raw.strip())[-1].splitlines()[1:] if raw.strip() else []
+heads = []
+for h in block:
+    name, _, value = h.partition(":")
+    name = name.strip().lower()
+    if name and name not in VARYING_HEADERS:
+        heads.append(f"{name}: {header(name, value.strip())}")
+lines += sorted(heads)
+try:
+    body = open(body_file, encoding="utf-8", errors="replace").read()
+except FileNotFoundError:
+    body = ""
+lines.append("")
+if body:
+    try:
+        lines.append(render(json.loads(body, parse_float=Num, parse_int=Num)))
+    except ValueError:
+        lines.append(f"<{len(body.splitlines())} lines of non-JSON>" if "<html" in body.lower() else body)
+open(out, "w").write("\n".join(lines) + "\n")
+EOF
+}
+
+# POSTs FORM to edge-service's PATH as a browser's HTML form would, in the session of JAR.
+snap_form() { # path jar form
+  rm -f "$WORK/body" "$WORK/headers"
+  CODE=$(curl -s -c "$2" -b "$2" -o "$WORK/body" -D "$WORK/headers" -w '%{http_code}' \
+    -H 'Content-Type: application/x-www-form-urlencoded' -d "$3" "$EDGE$1")
+}
+
+snapshot() {
+  local anon=$WORK/anon.jar ij=$WORK/isabelle.jar bj=$WORK/bjorn.jar xsrf
+  local book="{\"isbn\":\"$SNAP_ISBN\",\"title\":\"API Snapshot\",\"author\":\"Snapshot Taker\",\"price\":12.50,\"publisher\":\"Polarsophia\"}"
+  local changed="{\"isbn\":\"$SNAP_ISBN\",\"title\":\"API Snapshot, Revised\",\"author\":\"Snapshot Taker\",\"price\":13,\"publisher\":null}"
+  log "API snapshot through edge-service ($EDGE) to $SNAP_DIR"
+  [[ $(curl -s -o /dev/null -m 10 -w '%{http_code}' "$EDGE/") == 200 ]] \
+    || { echo "edge-service doesn't serve polar-ui: start the stack with all edge" >&2; exit 1; }
+  mkdir -p "$SNAP_DIR" && rm -f "$SNAP_DIR"/[0-9][0-9]-*.txt || exit 1
+  edge_login isabelle "$ij" && edge_login bjorn "$bj" || { echo "Could not log in" >&2; exit 1; }
+  edge DELETE "/books/$SNAP_ISBN" "$ij"   # from an interrupted earlier snapshot
+
+  edge GET / "$anon";                       snap anonymous-get-spa
+  edge GET /user "$anon";                   snap anonymous-get-user
+  edge GET /books "$anon";                  snap anonymous-get-books
+  edge GET "/books/$SEEDED_ISBN" "$anon";   snap anonymous-get-book
+  edge GET "/books/$SNAP_MISSING" "$anon";  snap anonymous-get-missing-book
+  edge POST /books "$anon" "$book";         snap anonymous-post-book
+  edge GET /orders "$anon";                 snap anonymous-get-orders
+
+  edge GET /user "$ij";                     snap employee-get-user
+  edge POST /books "$ij" "$book" nocsrf;    snap employee-post-book-without-csrf
+  edge POST /books "$ij" "$book";           snap employee-post-book
+  edge POST /books "$ij" "$book";           snap employee-post-book-again
+  edge POST /books "$ij" '{"isbn":"12","title":"","price":-1}'; snap employee-post-invalid-book
+  edge GET "/books/$SNAP_ISBN" "$ij";       snap employee-get-book
+  edge PUT "/books/$SNAP_ISBN" "$ij" "$changed"; snap employee-put-book
+  edge PUT "/books/$SNAP_ISBN" "$ij" '{"isbn":"x"}'; snap employee-put-invalid-book
+
+  edge GET /user "$bj";                     snap customer-get-user
+  edge POST /books "$bj" "$book";           snap customer-post-book
+  edge DELETE "/books/$SNAP_ISBN" "$bj";    snap customer-delete-book
+  edge POST /orders "$bj" "{\"isbn\":\"$SNAP_ISBN\",\"quantity\":2}"; snap customer-post-order
+  edge POST /orders "$bj" "{\"isbn\":\"$SNAP_MISSING\",\"quantity\":1}"; snap customer-post-order-missing-book
+  edge POST /orders "$bj" '{"isbn":"","quantity":0}'; snap customer-post-invalid-order
+  edge GET /orders "$bj";                   snap customer-get-orders
+
+  # The catalog fallback, with catalog-service frozen until the circuit breaker's time limit.
+  PAUSED=catalog-service; podman pause catalog-service >/dev/null
+  edge GET /books "$anon";                  snap fallback-get-books
+  edge GET "/books/$SEEDED_ISBN" "$anon";   snap fallback-get-book
+  edge POST /books "$ij" "$book";           snap fallback-post-book
+  podman unpause catalog-service >/dev/null; PAUSED=
+  wait_until 60 "catalog-service through edge-service" \
+    bash -c "[[ \$(curl -s -m 10 $EDGE/books) == *isbn* ]]" || exit 1
+
+  edge DELETE "/books/$SNAP_ISBN" "$ij";    snap employee-delete-book
+  edge DELETE "/books/$SNAP_ISBN" "$ij";    snap employee-delete-missing-book
+  edge GET "/books/$SNAP_ISBN" "$ij";       snap employee-get-deleted-book
+
+  # polar-ui logs out with an HTML form whose _csrf field is the raw XSRF-TOKEN cookie value.
+  snap_form /logout "$ij" "_csrf=wrong";    snap employee-logout-wrong-csrf
+  xsrf=$(awk '$6 == "XSRF-TOKEN" {print $7}' "$ij" | tail -1)
+  snap_form /logout "$ij" "_csrf=$xsrf";    snap employee-logout
+  edge GET /user "$ij";                     snap employee-get-user-after-logout
+
+  echo "Wrote $(ls "$SNAP_DIR" | wc -l) responses to $SNAP_DIR"
+}
+
 # Runs the undo commands the browser tests have left in UI_UNDO_FILE, such as when they were
 # killed while catalog-service was paused.
 ui_undo() {
@@ -1426,4 +1627,5 @@ case $CMD in
   down) down && rm -f "$OWNER" ;;
   all)  echo "$ROOT" > "$OWNER"; up && run_tests ;;
   logs) logs ;;
+  snapshot) snapshot ;;
 esac

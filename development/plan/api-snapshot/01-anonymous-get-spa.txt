@@ -1,0 +1,19 @@
+status: 200
+accept-ranges: bytes
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+content-type: text/html; charset=utf-8
+etag: "12cea601-ee55"
+expires: 0
+last-modified: Tue, 01 Jan 1980 00:00:01 GMT
+pragma: no-cache
+referrer-policy: no-referrer
+server: nginx/1.31.6
+set-cookie: XSRF-TOKEN=<value>; Path=/
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-ratelimit-burst-capacity: 20
+x-ratelimit-replenish-rate: 10
+x-ratelimit-requested-tokens: 1
+x-xss-protection: 1 ; mode=block
+
+<13 lines of non-JSON>

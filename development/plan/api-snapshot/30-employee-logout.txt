@@ -1,0 +1,12 @@
+status: 302
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+expires: 0
+location: http://host.docker.internal:8080/realms/PolarBookshop/protocol/openid-connect/logout?id_token_hint=<value>&post_logout_redirect_uri=<value>
+pragma: no-cache
+referrer-policy: no-referrer
+set-cookie: SESSION=<value>; Path=/; HttpOnly; SameSite=Lax
+set-cookie: XSRF-TOKEN=<empty>; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-xss-protection: 1 ; mode=block
+

@@ -1,0 +1,29 @@
+status: 200
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+content-type: application/json
+expires: 0
+pragma: no-cache
+referrer-policy: no-referrer
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-ratelimit-burst-capacity: 20
+x-ratelimit-replenish-rate: 10
+x-ratelimit-requested-tokens: 1
+x-xss-protection: 0
+
+[
+  list of objects, fields in order: id: number, isbn: string, title: string, author: string, price: number, publisher: string, createdDate: string, lastModifiedDate: string, createdBy: null, lastModifiedBy: null, version: number,
+  seeded book: {
+    "id": <number>,
+    "isbn": "1234567891",
+    "title": "Northern Lights",
+    "author": "Lyra Silverstar",
+    "price": 9.9,
+    "publisher": "Polarsophia",
+    "createdDate": <string N-N-NTN:N:N.NZ>,
+    "lastModifiedDate": <string N-N-NTN:N:N.NZ>,
+    "createdBy": null,
+    "lastModifiedBy": null,
+    "version": 1
+  }
+]

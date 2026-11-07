@@ -1,0 +1,26 @@
+status: 200
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+content-type: application/json
+expires: 0
+pragma: no-cache
+referrer-policy: no-referrer
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-ratelimit-burst-capacity: 20
+x-ratelimit-replenish-rate: 10
+x-ratelimit-requested-tokens: 1
+x-xss-protection: 0
+
+{
+  "author": "Snapshot Taker",
+  "createdBy": <string>,
+  "createdDate": <string N-N-NTN:N:N.NZ>,
+  "id": <number>,
+  "isbn": "9600000001",
+  "lastModifiedBy": <string>,
+  "lastModifiedDate": <string N-N-NTN:N:N.NZ>,
+  "price": 12.5,
+  "publisher": "Polarsophia",
+  "title": "API Snapshot",
+  "version": 1
+}

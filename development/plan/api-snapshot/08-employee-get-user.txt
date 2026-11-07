@@ -1,0 +1,17 @@
+status: 200
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+content-type: application/json
+expires: 0
+pragma: no-cache
+referrer-policy: no-referrer
+set-cookie: XSRF-TOKEN=<value>; Path=/
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-xss-protection: 1 ; mode=block
+
+{
+  "username": "isabelle",
+  "firstName": "Isabelle",
+  "lastName": "Dahl",
+  "roles": ["customer", "default-roles-polarbookshop", "employee", "offline_access", "uma_authorization"]
+}
