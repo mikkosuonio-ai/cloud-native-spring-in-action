@@ -486,7 +486,8 @@ remains.
 | 0.1 The plan | `1d168f2` | CI 42368287174 |
 | 0.2 CI actions, permissions, cache keys (17, part of 20) | `505240e` | CI 42392520967; each build job saved its own Gradle cache key |
 | 0.3 Tempo and Loki usage-report opt-outs (part of 12) | `79e00a2` | CI 42393361145; locally Loki and Tempo alone (the stack didn't fit) |
-| 0.4 Baseline, `smoke-test.sh snapshot`, pod memory in `--k8s` runs | | |
+| 0.4 Baseline, `smoke-test.sh snapshot`, pod memory in `--k8s` runs | `c32ced5` | CI 42396634929, whose MicroK8s job printed the pod memory below; locally `all`, `all edge`, two identical snapshots |
+| 0.5 Tag `pre-dependency-update` | this commit | pushed when the user agrees |
 
 ### Baseline (step 0.4, 2026-11-07)
 
@@ -523,8 +524,9 @@ and JDK 17; polar-ui v2.1.1.
 | polar-postgres | 20 | 20 |
 
 `all ui` didn't fit beside four Claude sessions (310 MiB available with the edge stack up), so
-its memory is left to a quieter moment. Pod memory on MicroK8s: the smoke script prints it after
-`--k8s` runs since this step; the baseline is CI's figure for this step's commit.
+its memory is left to a quieter moment. **Pod memory on MicroK8s** (working set after the tests, MiB), from CI run 42396634929:
+catalog 248, config 212, dispatcher 199, order 269 (limits 756Mi); Keycloak 536 (750Mi),
+PostgreSQL 50 (120Mi), RabbitMQ 132 (300Mi).
 
 **Images** (MB): catalog 326, order 400, edge 394, dispatcher 387, config 385.
 
