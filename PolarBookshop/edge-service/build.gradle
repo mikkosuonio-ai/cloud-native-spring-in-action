@@ -49,6 +49,8 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-webflux-test'
 	testImplementation 'io.projectreactor:reactor-test'
 	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+	// Gradle 9 no longer puts a JUnit Platform launcher on the test runtime classpath.
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 dependencyManagement {
