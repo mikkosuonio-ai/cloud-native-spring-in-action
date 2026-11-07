@@ -69,4 +69,21 @@ class BookJsonTests {
 				.isEqualTo(new Book(394L, "1234567890", "Title", "Author", 9.90, "Polarsophia", instant, instant, "jenny", "eline", 21));
 	}
 
+	// polar-ui sends a new or edited book without its id, audit fields and version.
+	@Test
+	void testDeserializeWithoutVersion() throws Exception {
+		var content = """
+                {
+                    "isbn": "1234567890",
+                    "title": "Title",
+                    "author": "Author",
+                    "price": 9.90,
+                    "publisher": "Polarsophia"
+                }
+                """;
+		assertThat(json.parse(content))
+				.usingRecursiveComparison()
+				.isEqualTo(Book.of("1234567890", "Title", "Author", 9.90, "Polarsophia"));
+	}
+
 }

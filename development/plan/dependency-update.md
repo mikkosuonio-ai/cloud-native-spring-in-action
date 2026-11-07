@@ -487,7 +487,10 @@ remains.
 | 0.2 CI actions, permissions, cache keys (17, part of 20) | `505240e` | CI 42392520967; each build job saved its own Gradle cache key |
 | 0.3 Tempo and Loki usage-report opt-outs (part of 12) | `79e00a2` | CI 42393361145; locally Loki and Tempo alone (the stack didn't fit) |
 | 0.4 Baseline, `smoke-test.sh snapshot`, pod memory in `--k8s` runs | `c32ced5` | CI 42396634929, whose MicroK8s job printed the pod memory below; locally `all`, `all edge`, two identical snapshots |
-| 0.5 Tag `pre-dependency-update` | this commit | pushed when the user agrees |
+| 0.5 Tag `pre-dependency-update` | `5a71b5a` | CI 42397282992; tag created locally, pushed when the user agrees |
+| 1 catalog: Gradle 8.14.6 | `9d4b789` | CI 42397967447; locally 48 tests |
+| 1a catalog: Boot 3.5.16, Cloud 2025.0.3, 25's fixes | `8a23984` | CI 42398791034; locally 48 tests, `all edge` 90, snapshot identical, `all` 80; `test ui` timed out under memory pressure (52) |
+| 1b catalog: Boot 4.1.2, Cloud 2025.1.4 | | |
 
 ### Baseline (step 0.4, 2026-11-07)
 

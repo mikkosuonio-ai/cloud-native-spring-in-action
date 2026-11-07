@@ -27,6 +27,11 @@ spring:
         initial-interval: 1000 # 1s
         max-interval: 2000 # 2s
         multiplier: 1.1
+  jackson:
+    deserialization:
+      # Jackson 3 refuses a missing or null value for a primitive. polar-ui sends books without
+      # their version, which is an int, so it becomes 0 as with Jackson 2.
+      fail-on-null-for-primitives: false
   datasource:
     username: user
     password: password

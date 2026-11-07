@@ -2,7 +2,6 @@ package com.polarbookshop.catalogservice.web;
 
 import java.util.List;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.polarbookshop.catalogservice.config.SecurityConfig;
 import com.polarbookshop.catalogservice.domain.Book;
 import com.polarbookshop.catalogservice.domain.BookAlreadyExistsException;
@@ -10,12 +9,13 @@ import com.polarbookshop.catalogservice.domain.BookNotFoundException;
 import com.polarbookshop.catalogservice.domain.BookService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.ObjectMapper;
 
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -136,6 +136,21 @@ class BookControllerMvcTests {
 				.andExpect(status().isCreated());
 	}
 
+	// As polar-ui sends it: without id, audit fields and version.
+	@Test
+	void whenPostBookWithoutVersionThenShouldReturn201() throws Exception {
+		var bookToCreate = Book.of("7373731395", "Title", "Author", 9.90, "Polarsophia");
+		given(bookService.addBookToCatalog(bookToCreate)).willReturn(bookToCreate);
+		mockMvc
+				.perform(post("/books")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"isbn": "7373731395", "title": "Title", "author": "Author", "price": 9.90, "publisher": "Polarsophia"}
+								""")
+						.with(jwt().authorities(new SimpleGrantedAuthority(ROLE_EMPLOYEE))))
+				.andExpect(status().isCreated());
+	}
+
 	@Test
 	void whenPostBookWithCustomerRoleThenShouldReturn403() throws Exception {
 		var isbn = "7373731394";
@@ -224,7 +239,7 @@ class BookControllerMvcTests {
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(objectMapper.writeValueAsString(bookToCreate))
 						.with(jwt().authorities(new SimpleGrantedAuthority(ROLE_EMPLOYEE))))
-				.andExpect(status().isUnprocessableEntity())
+				.andExpect(status().isUnprocessableContent())
 				.andExpect(content().string("A book with ISBN " + isbn + " already exists."));
 	}
 

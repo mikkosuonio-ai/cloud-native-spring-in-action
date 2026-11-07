@@ -33,7 +33,7 @@ safety net reliable were fixed first. What the review left for the update, and f
 - Keycloak 26 on Kubernetes has little room under its 750Mi limit: 525 MiB of its own memory
   after a smoke run, plus about 200 MiB of page cache.
 
-**As part of the update:** 14, 22, 25, 29, 12 (with Tempo and Loki), 20 (the native job, after
+**As part of the update:** 14, 22, 29, 12 (with Tempo and Loki), 20 (the native job, after
 Spring Native 0.12 is replaced by Boot 3's native support).
 
 **After the update:**
@@ -96,8 +96,9 @@ Loki no longer report usage to Grafana Labs since step 0.3 of the dependency upd
 Testcontainers before 1.21.4 fails with "client version 1.32 is too old". catalog, order and
 edge pin 1.21.4 since the review of 2026-11-04 (46), which also stopped order's 1.19.8 from
 downgrading the 1.21.3 that testcontainers-keycloak 3.9.0 asks for; it works with the local
-Podman 4.9. **Left:** the run on an `ubuntu-26.04` runner (deferred checks), and with Boot 3, let
-Spring Boot manage the version instead of the pins. The per-service workflows under
+Podman 4.9. catalog-service has Boot manage it since the dependency update (Testcontainers 2.0.5
+on Boot 4.1). **Left:** the run on an `ubuntu-26.04` runner (deferred checks), and with Boot 3,
+let Spring Boot manage the version instead of the pins in order and edge. The per-service workflows under
 `*/.github/workflows`, which don't run here, use `ubuntu-22.04`, unsupported from 2027-04-17.
 
 ### 20. Other CI cleanup
@@ -124,14 +125,6 @@ Every 400 (an unknown or missing genre) logs ERROR "Failed to invoke function" w
 `FunctionInputExceptionHandler` is global, so any `ConversionFailedException` in a cause chain
 becomes 400. A genre without quotes would give 500 (`nextInt(0)`), but none exists. **Fix:** scope
 the handler to `FunctionController`, and log client errors below ERROR.
-
-### 25. catalog-service build hygiene
-
-`sourceCompatibility` goes through `JavaPluginConvention`, which Gradle 9 removes;
-`SecurityConfig` uses the deprecated `jwt()` (through `OAuth2ResourceServerConfigurer::jwt`); the
-unused `ext.springBootVersion = "3.5.5"` disagrees with the plugin's 3.5.6; `-parameters` is
-redundant. **Fix:** a Java toolchain, `oauth2.jwt(Customizer.withDefaults())`, and remove the rest.
-(The builder is pinned since b7e0d4f.)
 
 ### 26. order-service messaging gaps
 

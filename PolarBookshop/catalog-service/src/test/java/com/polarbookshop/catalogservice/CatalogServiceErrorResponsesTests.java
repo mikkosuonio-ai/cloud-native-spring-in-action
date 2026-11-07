@@ -4,12 +4,14 @@ import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
  * Error responses to anonymous requests keep their status instead of becoming 401. Runs against a
  * real server, since only it makes the error dispatch that renders them, and without PostgreSQL.
  */
+@AutoConfigureWebTestClient
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 		properties = {
