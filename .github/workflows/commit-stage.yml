@@ -17,61 +17,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-java-21:
-    name: Build and Test ${{ matrix.project }}
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [
-          PolarBookshop/catalog-service,
-        ]
-    defaults:
-      run:
-        working-directory: ${{ matrix.project }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-      - name: Set up JDK
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: 21
-          cache: gradle
-          # A cache per project. settings.gradle also keeps the key apart from the images
-          # job's, whose image build needs other dependencies than the tests.
-          cache-dependency-path: |
-            ${{ matrix.project }}/*.gradle
-            ${{ matrix.project }}/gradle/wrapper/gradle-wrapper.properties
-      - name: Build, unit tests and integration tests
-        run: |
-          chmod +x gradlew
-          ./gradlew build
-      # Artifact names can't contain "/". project.txt gives the summary the project's path,
-      # and keeps the artifact from being empty when the build fails before the tests.
-      - name: Prepare test and coverage reports
-        id: reports
-        if: ${{ !cancelled() }}
-        env:
-          PROJECT: ${{ matrix.project }}
-        run: |
-          mkdir -p build
-          echo "$PROJECT" > build/project.txt
-          echo "artifact=reports-${PROJECT//\//-}" >> "$GITHUB_OUTPUT"
-      - name: Upload test and coverage reports
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ steps.reports.outputs.artifact }}
-          path: |
-            ${{ matrix.project }}/build/project.txt
-            ${{ matrix.project }}/build/test-results/test/
-            ${{ matrix.project }}/build/reports/tests/test/
-            ${{ matrix.project }}/build/reports/jacoco/test/
-          retention-days: 14
-
   build:
     name: Build and Test ${{ matrix.project }}
     runs-on: ubuntu-24.04
@@ -80,14 +25,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [
-          PolarBookshop/quote-service,
-          PolarBookshop/quote-function,
-          PolarBookshop/dispatcher-service,
-          PolarBookshop/config-service,
-          PolarBookshop/order-service,
-          PolarBookshop/edge-service,
-        ]
+        # Each project with the JDK its build runs on. The dependency update moves them to 25
+        # one at a time (development/plan/dependency-update.md).
+        include:
+          - { project: PolarBookshop/catalog-service, java: 25 }
+          - { project: PolarBookshop/quote-service, java: 17 }
+          - { project: PolarBookshop/quote-function, java: 17 }
+          - { project: PolarBookshop/dispatcher-service, java: 17 }
+          - { project: PolarBookshop/config-service, java: 17 }
+          - { project: PolarBookshop/order-service, java: 17 }
+          - { project: PolarBookshop/edge-service, java: 17 }
     defaults:
       run:
         working-directory: ${{ matrix.project }}
@@ -98,7 +45,7 @@ jobs:
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: 17
+          java-version: ${{ matrix.java }}
           cache: gradle
           # A cache per project. settings.gradle also keeps the key apart from the images
           # job's, whose image build needs other dependencies than the tests.
@@ -202,6 +149,7 @@ jobs:
           java-version: |
             17
             21
+            25
           cache: gradle
           # A cache per service: each job needs its own project's dependencies only.
           cache-dependency-path: |
@@ -212,6 +160,7 @@ jobs:
           SERVICE: ${{ matrix.service }}
           SMOKE_JDK_17: ${{ env.JAVA_HOME_17_X64 }}
           SMOKE_JDK_21: ${{ env.JAVA_HOME_21_X64 }}
+          SMOKE_JDK_25: ${{ env.JAVA_HOME_25_X64 }}
         run: bash development/script/smoke-test.sh build "$SERVICE"
       - name: Save the image
         env:
@@ -234,7 +183,7 @@ jobs:
   # logs in the summary.
   smoke-podman:
     name: Smoke test on Podman (${{ matrix.services }})
-    needs: [build-java-21, build, images]
+    needs: [build, images]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -331,7 +280,7 @@ jobs:
   # default selection only.
   smoke-k8s:
     name: Smoke test on MicroK8s
-    needs: [build-java-21, build, k8s-manifests, images]
+    needs: [build, k8s-manifests, images]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -447,7 +396,7 @@ jobs:
 
   reports:
     name: Test and coverage reports
-    needs: [build-java-21, build, smoke-podman, smoke-k8s]
+    needs: [build, smoke-podman, smoke-k8s]
     # Also after failed builds: the summary shows what failed.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04

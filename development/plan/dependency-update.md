@@ -492,7 +492,8 @@ remains.
 | 1 catalog: Gradle 8.14.6 | `9d4b789` | CI 42397967447; locally 48 tests |
 | 1a catalog: Boot 3.5.16, Cloud 2025.0.3, 25's fixes | `8a23984` | CI 42398791034; locally 48 tests, `all edge` 90, snapshot identical, `all` 80; `test ui` timed out under memory pressure (52) |
 | 1b catalog: Boot 4.1.2, Cloud 2025.1.4 | `f64a290` | CI 42402694516 (browser tests and MicroK8s too; catalog pod 243 MiB); locally 50 tests, `all` 80, `all edge` 90, snapshot identical. Found: Jackson 3 refuses books without `version` (fixed in the step) |
-| 1c catalog: Gradle 9.8.2 | | |
+| 1c catalog: Gradle 9.8.2 | `dd38e3b` | CI 42403799443; locally 50 tests, `all` 80; then `all ui` 100 (486-523 MiB available at least, after the other sessions closed) |
+| 1d catalog: JDK 25, builder 0.0.211, CI's JDK matrix | | |
 
 ### Baseline (step 0.4, 2026-11-07)
 

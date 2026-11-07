@@ -33,7 +33,8 @@
 # worktree's stack, and down leaves it running. up also rebuilds an image another worktree built.
 #
 # Environment:
-#   SMOKE_JDK_17, SMOKE_JDK_21  JDKs the image builds run on (default: the sdkman installations)
+#   SMOKE_JDK_17, SMOKE_JDK_21, SMOKE_JDK_25
+#                               JDKs the image builds run on (default: the sdkman installations)
 #   SMOKE_JUNIT=FILE            test and all also write each check to FILE as JUnit XML
 #   SMOKE_POLAR_UI_IMAGE        polar-ui image instead of the compose file's, for example a
 #                               local build of the fork, localhost/polar-ui:dev
@@ -96,13 +97,15 @@ declare -A STANDALONE_PORT=([quote-service]=9101 [quote-function]=9102)
 # Services whose build.gradle asks for a GraalVM native image; built as JVM images instead,
 # because native compilation needs more memory than this machine has.
 JVM_INSTEAD_OF_NATIVE=" quote-service quote-function "
-# JDK each build runs on, installed with sdkman unless SMOKE_JDK_17/SMOKE_JDK_21 name others, as
+# JDK each build runs on, installed with sdkman unless SMOKE_JDK_17/21/25 name others, as
 # in CI. Spring Native 0.12 (quote-service, quote-function) can't read
 # Java 21 class files during AOT processing, so it builds on 17. Interim until every project is
 # on the same JDK and builds can use a preset JAVA_HOME.
 JDKS=$HOME/.sdkman/candidates/java
 JDK_17=${SMOKE_JDK_17:-$JDKS/17.0.20-tem}
-declare -A JDK=([quote-service]=$JDK_17 [quote-function]=$JDK_17)
+JDK_25=${SMOKE_JDK_25:-$JDKS/25.0.5.0+8-tem}
+# The services moved to JDK 25 by the dependency update (development/plan/dependency-update.md).
+declare -A JDK=([quote-service]=$JDK_17 [quote-function]=$JDK_17 [catalog-service]=$JDK_25)
 DEFAULT_JDK=${SMOKE_JDK_21:-$JDKS/21.0.12+1.1-tem}
 has() { [[ " ${SERVICES[*]} " == *" $1 "* ]]; }
 needs_keycloak() { has catalog-service; }
@@ -297,7 +300,7 @@ EOF
   fi
   local jdk=${JDK[$1]:-$DEFAULT_JDK}
   [[ -x $jdk/bin/java ]] \
-    || { echo "JDK not found: $jdk (install it with sdkman, or set SMOKE_JDK_17/SMOKE_JDK_21)" >&2; exit 1; }
+    || { echo "JDK not found: $jdk (install it with sdkman, or set SMOKE_JDK_17/21/25)" >&2; exit 1; }
   echo "Using JDK $jdk"
   JAVA_HOME=$jdk "$PB/$1/gradlew" --no-daemon -q -p "$PB/$1" -I "$WORK/podman.init.gradle" "${props[@]}" bootBuildImage \
     > "$WORK/build.log" 2>&1 || { tail -40 "$WORK/build.log"; echo "$1 image build FAILED" >&2; exit 1; }

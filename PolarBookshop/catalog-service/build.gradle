@@ -11,7 +11,7 @@ version = '0.0.1-SNAPSHOT'
 
 java {
 	toolchain {
-		languageVersion = JavaLanguageVersion.of(21)
+		languageVersion = JavaLanguageVersion.of(25)
 	}
 }
 
@@ -104,9 +104,9 @@ tasks.named('bootJar') {
 
 bootBuildImage {
 	// A version, not latest: on 2026-10-23 latest became an arm64-only image, which can't build on amd64.
-	builder = "docker.io/paketobuildpacks/builder-noble-java-tiny:0.0.200"
+	builder = "docker.io/paketobuildpacks/builder-noble-java-tiny:0.0.211"
 	imageName = "${project.name}"
-	environment = ["BP_JVM_VERSION": "21"]
+	environment = ["BP_JVM_VERSION": "25"]
 
 	docker {
 		publishRegistry {
