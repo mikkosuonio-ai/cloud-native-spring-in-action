@@ -1,5 +1,5 @@
 plugins {
-	id 'org.springframework.boot' version '3.5.16'
+	id 'org.springframework.boot' version '4.1.2'
 	id 'io.spring.dependency-management' version '1.1.7'
 	id 'java'
 	id 'jacoco'
@@ -22,7 +22,7 @@ repositories {
 
 ext {
 	set('otelVersion', "2.33.1")
-	set('springCloudVersion', "2025.0.3")
+	set('springCloudVersion', "2025.1.4")
 }
 
 configurations {
@@ -44,7 +44,7 @@ dependencies {
 	// Only on Apple Silicon. Why it's necessary: https://github.com/netty/netty/issues/11020
 	// runtimeOnly 'io.netty:netty-resolver-dns-native-macos:4.1.101.Final:osx-aarch_64'
 
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webflux-test'
 	testImplementation 'io.projectreactor:reactor-test'
 	testImplementation 'org.springframework.cloud:spring-cloud-stream-test-binder'
 }
@@ -70,7 +70,12 @@ tasks.named('bootJar') {
 bootBuildImage {
 	builder = "docker.io/paketobuildpacks/builder-jammy-base"
 	imageName = "${project.name}"
-	environment = ["BP_JVM_VERSION": "17"]
+	// Netty 4.2 (Boot 4) outgrows the 10M of direct memory the buildpack's memory calculator gives
+	// it, as edge-service's responses showed. An explicit limit in JAVA_TOOL_OPTIONS takes
+	// precedence, and the heap gets the rest.
+	environment = ["BP_JVM_VERSION": "17",
+			"BPE_DELIM_JAVA_TOOL_OPTIONS": " ",
+			"BPE_APPEND_JAVA_TOOL_OPTIONS": "-XX:MaxDirectMemorySize=64M"]
 
 	docker {
 		publishRegistry {
