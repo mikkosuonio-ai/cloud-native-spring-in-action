@@ -5,13 +5,12 @@ import java.sql.SQLException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.polarbookshop.orderservice.book.Book;
 import com.polarbookshop.orderservice.book.BookClient;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import reactor.core.publisher.Mono;
 
@@ -29,6 +28,7 @@ import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
@@ -44,7 +44,7 @@ import static org.mockito.BDDMockito.given;
 class OrderAcceptedEventTests {
 
 	@Container
-	static PostgreSQLContainer<?> postgresql = new PostgreSQLContainer<>(DockerImageName.parse("postgres:17.11"));
+	static PostgreSQLContainer postgresql = new PostgreSQLContainer(DockerImageName.parse("postgres:17.11"));
 
 	@Autowired
 	private OrderService orderService;
@@ -98,15 +98,10 @@ class OrderAcceptedEventTests {
 		}
 
 		private static long orderId(ObjectMapper objectMapper, Object payload) {
-			try {
-				var json = payload instanceof byte[] bytes
-						? objectMapper.readTree(bytes)
-						: objectMapper.valueToTree(payload);
-				return json.get("orderId").asLong();
-			}
-			catch (java.io.IOException ex) {
-				throw new IllegalStateException(ex);
-			}
+			var json = payload instanceof byte[] bytes
+					? objectMapper.readTree(bytes)
+					: objectMapper.valueToTree(payload);
+			return json.get("orderId").asLong();
 		}
 
 		private static boolean committed(long orderId) {

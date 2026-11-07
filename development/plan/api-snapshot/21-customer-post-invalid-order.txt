@@ -16,5 +16,5 @@ x-xss-protection: 0
   "path": "/orders",
   "requestId": <string>,
   "status": 400,
-  "timestamp": <string N-N-NTN:N:N.N+N:N>
+  "timestamp": <string N-N-NTN:N:N.NZ>
 }

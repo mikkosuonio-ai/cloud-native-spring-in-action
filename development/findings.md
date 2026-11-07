@@ -75,6 +75,12 @@ doesn't reach it.
   is described in `OrderService`.
 - **Left open:** the event still isn't sent later. **Fix:** a transactional outbox, after the
   update. The send also still blocks the R2DBC thread until the connection timeout (26).
+- **Seen in deferred check 3** (dependency update, steps 4a and 4b): after RabbitMQ's first
+  restart, order-service's sends failed for about 20 s more, though RabbitMQ was up ("Connect
+  timed out", "UnknownHost"); after later restarts they worked at once. Podman gives the restarted
+  container a new IP each time, so probably the JVM's DNS cache. Orders were FAILED, never
+  REJECTED, and order-service recovered by itself. Not compared with the version before the
+  update.
 
 ### 9. compose: order-service can't resolve `host.docker.internal` on Docker Engine
 

@@ -5,9 +5,9 @@ import java.net.ConnectException;
 import com.polarbookshop.orderservice.book.Book;
 import com.polarbookshop.orderservice.book.BookClient;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import reactor.core.publisher.Mono;
 
@@ -40,7 +40,7 @@ import static org.mockito.BDDMockito.given;
 class OrderAcceptedEventFailureTests {
 
 	@Container
-	static PostgreSQLContainer<?> postgresql = new PostgreSQLContainer<>(DockerImageName.parse("postgres:17.11"));
+	static PostgreSQLContainer postgresql = new PostgreSQLContainer(DockerImageName.parse("postgres:17.11"));
 
 	@Autowired
 	private OrderService orderService;
