@@ -168,7 +168,9 @@ Each item is a commit of its own, verified, and pushed when the user says so.
 
    Dates, ids and tokens are masked, and each response goes to a file in a directory to diff.
    The baseline is in `development/plan/api-snapshot/`; a step compares with
-   `diff -r development/plan/api-snapshot DIR`.
+   `diff -r development/plan/api-snapshot DIR`. A step whose differences are accepted updates the
+   baseline in its commit and lists them in its progress notes, so that the next step's diff
+   shows only its own; `git log -p development/plan/api-snapshot` has them all.
 5. **A tag, `pre-dependency-update`,** on the last commit of step 0, to compare with and to go back
    to. Pushed only when the user agrees.
 
@@ -494,7 +496,8 @@ remains.
 | 1b catalog: Boot 4.1.2, Cloud 2025.1.4 | `f64a290` | CI 42402694516 (browser tests and MicroK8s too; catalog pod 243 MiB); locally 50 tests, `all` 80, `all edge` 90, snapshot identical. Found: Jackson 3 refuses books without `version` (fixed in the step) |
 | 1c catalog: Gradle 9.8.2 | `dd38e3b` | CI 42403799443; locally 50 tests, `all` 80; then `all ui` 100 (486-523 MiB available at least, after the other sessions closed) |
 | 1d catalog: JDK 25, builder 0.0.211, CI's JDK matrix | `41bd2a7` | CI 42405414478 (catalog pod 227 MiB); locally 50 tests, `all` 80, `all ui` 100, snapshot identical; then `all --k8s` 100 (catalog pod 226 MiB) and deferred check 4: a rolling restart of catalog-service under about 16 requests/s, 804 requests all 200, no FailedPreStopHook events |
-| 2 edge: Gradle 8.14.6 | `eddc1a6` | locally 11 tests, `all edge` 90, snapshot identical |
+| 2 edge: Gradle 8.14.6 | `eddc1a6` | CI 42406936553; locally 11 tests, `all edge` 90, snapshot identical |
+| 2a edge: Boot 3.5.16, Cloud 2025.0.3, Gateway 4.3, raw CSRF tokens | | |
 
 ### Baseline (step 0.4, 2026-11-07)
 

@@ -3,6 +3,7 @@ package com.polarbookshop.edgeservice.config;
 import reactor.core.publisher.Mono;
 
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
@@ -17,8 +18,10 @@ import org.springframework.security.web.server.authentication.HttpStatusServerEn
 import org.springframework.security.web.server.authentication.logout.ServerLogoutSuccessHandler;
 import org.springframework.security.web.server.csrf.CookieServerCsrfTokenRepository;
 import org.springframework.security.web.server.csrf.CsrfToken;
+import org.springframework.security.web.server.csrf.ServerCsrfTokenRequestAttributeHandler;
 import org.springframework.web.server.WebFilter;
 
+@Configuration
 @EnableWebFluxSecurity
 public class SecurityConfig {
 
@@ -40,7 +43,14 @@ public class SecurityConfig {
 						.authenticationEntryPoint(new HttpStatusServerEntryPoint(HttpStatus.UNAUTHORIZED)))
 				.oauth2Login(Customizer.withDefaults())
 				.logout(logout -> logout.logoutSuccessHandler(oidcLogoutSuccessHandler(clientRegistrationRepository)))
-				.csrf(csrf -> csrf.csrfTokenRepository(CookieServerCsrfTokenRepository.withHttpOnlyFalse()))
+				// polar-ui reads the XSRF-TOKEN cookie and sends its value unmasked, in the X-XSRF-TOKEN
+				// header of its writes and in the _csrf field of its logout form. Spring Security 6's
+				// default handler expects tokens masked against BREACH, which protects tokens rendered
+				// into pages; edge-service renders none. So it resolves them as they are, as Spring
+				// Security 5 did.
+				.csrf(csrf -> csrf
+						.csrfTokenRepository(CookieServerCsrfTokenRepository.withHttpOnlyFalse())
+						.csrfTokenRequestHandler(new ServerCsrfTokenRequestAttributeHandler()))
 				.build();
 	}
 

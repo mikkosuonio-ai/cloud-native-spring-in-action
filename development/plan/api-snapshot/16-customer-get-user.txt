@@ -7,7 +7,7 @@ referrer-policy: no-referrer
 set-cookie: XSRF-TOKEN=<value>; Path=/
 x-content-type-options: nosniff
 x-frame-options: DENY
-x-xss-protection: 1 ; mode=block
+x-xss-protection: 0
 
 {
   "username": "bjorn",

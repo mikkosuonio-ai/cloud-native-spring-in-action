@@ -424,9 +424,11 @@ up() {
   # grafana's depends_on also brings up loki and fluent-bit; nothing sends logs to them.
   needs_observability && backing+=(prometheus tempo grafana)
   # Podman has no unqualified-search registries here, so short names like
-  # "rabbitmq:3.13-management" only work once the image is in local storage.
-  local img attempt
-  for s in "${backing[@]}"; do
+  # "rabbitmq:3.13-management" only work once the image is in local storage. That includes the
+  # services grafana's depends_on starts.
+  local img attempt pulled=("${backing[@]}")
+  needs_observability && pulled+=(loki fluent-bit)
+  for s in "${pulled[@]}"; do
     img=$(python3 -I -c 'import sys,yaml; print(yaml.safe_load(open(sys.argv[1]))["services"][sys.argv[2]]["image"])' "$COMPOSE" "$s")
     podman image exists "$img" && continue
     if [[ $img != */* ]]; then img=docker.io/library/$img
@@ -1085,9 +1087,9 @@ test_edge() {
 # ---- API snapshot (snapshot) ---------------------------------------------------
 # Writes what polar-ui sees of the API through edge-service to SNAP_DIR, one file per request:
 # the status, the response headers and the body, with what changes from run to run masked
-# (ids, dates, user ids, tokens, session cookies, the rate limiter's remaining tokens). Field
-# order and number formats are kept as sent, so that `diff -r OLD NEW` shows a changed
-# serialization; a date keeps its format, with its digits masked. Lists of objects show each
+# (ids, dates, user ids, tokens, cookie values and expiry dates, the rate limiter's remaining
+# tokens). Field order and number formats are kept as sent, so that `diff -r OLD NEW` shows a
+# changed serialization; a date keeps its format, with its digits masked. Lists of objects show each
 # element's fields and types, and the seeded book (SEEDED_ISBN) in full. Validation error maps
 # (all values strings) and lists of strings, such as roles, are sorted: their order varies.
 SNAP_ISBN=9600000001        # the snapshot's own book; the other tests use 97, 98 and 99
@@ -1148,6 +1150,8 @@ def header(name, value):
     if name == "set-cookie":
         cookie, _, attrs = value.partition(";")
         cname, _, cvalue = cookie.partition("=")
+        # A deleted cookie's Expires is the epoch with some servers and the current time with others.
+        attrs = re.sub(r"(?i)(expires=)[^;]*", r"\1<date>", attrs)
         return f"{cname.strip()}=<{'empty' if not cvalue else 'value'}>;{attrs}"
     if name == "location":
         url = urlsplit(value)

@@ -14,6 +14,6 @@ x-frame-options: DENY
 x-ratelimit-burst-capacity: 20
 x-ratelimit-replenish-rate: 10
 x-ratelimit-requested-tokens: 1
-x-xss-protection: 1 ; mode=block
+x-xss-protection: 0
 
 <13 lines of non-JSON>

@@ -26,8 +26,9 @@ safety net reliable were fixed first. What the review left for the update, and f
 
 **Risks to guard:**
 - Spring Security 6, with Boot 3, masks CSRF tokens by default, which breaks SPAs that send the
-  raw XSRF-TOKEN cookie value, as polar-ui does through Angular's interceptor. The browser tests
-  cover the writes and the logout form.
+  raw XSRF-TOKEN cookie value, as polar-ui does through Angular's interceptor. edge-service
+  resolves them raw since its Boot 3.5 step; `SecurityConfigTests`, the browser tests and the
+  curl smoke tests cover the writes and the logout form.
 - Flyway 8 warns that PostgreSQL 17 is newer than it has been tested with. A newer Flyway comes
   with Boot 3.
 - Keycloak 26 on Kubernetes has little room under its 750Mi limit: 525 MiB of its own memory
@@ -52,7 +53,7 @@ verified by the browser tests. Its plan is in the fork's history
 `plan/future-work.md`. The backend update runs against v2.1.1, which needs from edge-service:
 - the raw `XSRF-TOKEN` cookie value accepted as `X-XSRF-TOKEN` on writes, and as `_csrf` in the
   logout form, a plain HTML form POST. Spring Security 6 expects masked tokens by default, so
-  edge-service's Boot 3 step has to accept both raw;
+  edge-service's `SecurityConfig` sets a handler that accepts both raw;
 - `GET /user` answering 401 for an anonymous visitor, which v2.1.1 handles quietly;
 - the `[]` catalog fallback for `GET /books`, without which its book list spins for good;
 - `/`, `/*.css`, `/*.js`, `/favicon.ico` and `/media/**` permitted and routed to polar-ui (50).
@@ -96,9 +97,9 @@ Loki no longer report usage to Grafana Labs since step 0.3 of the dependency upd
 Testcontainers before 1.21.4 fails with "client version 1.32 is too old". catalog, order and
 edge pin 1.21.4 since the review of 2026-11-04 (46), which also stopped order's 1.19.8 from
 downgrading the 1.21.3 that testcontainers-keycloak 3.9.0 asks for; it works with the local
-Podman 4.9. catalog-service has Boot manage it since the dependency update (Testcontainers 2.0.5
-on Boot 4.1). **Left:** the run on an `ubuntu-26.04` runner (deferred checks), and with Boot 3,
-let Spring Boot manage the version instead of the pins in order and edge. The per-service workflows under
+Podman 4.9. catalog- and edge-service have Boot manage it since the dependency update.
+**Left:** the run on an `ubuntu-26.04` runner (deferred checks), and with Boot 3, let Spring Boot
+manage the version instead of the pin in order. The per-service workflows under
 `*/.github/workflows`, which don't run here, use `ubuntu-22.04`, unsupported from 2027-04-17.
 
 ### 20. Other CI cleanup

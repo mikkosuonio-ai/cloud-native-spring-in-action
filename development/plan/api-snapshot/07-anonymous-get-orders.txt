@@ -5,5 +5,5 @@ pragma: no-cache
 referrer-policy: no-referrer
 x-content-type-options: nosniff
 x-frame-options: DENY
-x-xss-protection: 1 ; mode=block
+x-xss-protection: 0
 
