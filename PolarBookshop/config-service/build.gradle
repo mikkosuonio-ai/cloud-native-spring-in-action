@@ -1,5 +1,5 @@
 plugins {
-	id 'org.springframework.boot' version '3.5.16'
+	id 'org.springframework.boot' version '4.1.2'
 	id 'io.spring.dependency-management' version '1.1.7'
 	id 'java'
 	id 'jacoco'
@@ -22,7 +22,7 @@ repositories {
 
 ext {
 	set('otelVersion', "2.33.1")
-	set('springCloudVersion', "2025.0.3")
+	set('springCloudVersion', "2025.1.4")
 }
 
 configurations {
@@ -36,7 +36,9 @@ dependencies {
 	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 	otelAgent "io.opentelemetry.javaagent:opentelemetry-javaagent:${otelVersion}"
 
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.boot:spring-boot-restclient'
+	testImplementation 'org.springframework.boot:spring-boot-resttestclient'
 }
 
 dependencyManagement {
