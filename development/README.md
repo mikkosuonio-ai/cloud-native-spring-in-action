@@ -12,8 +12,9 @@ future work are in [findings.md](findings.md).
 - **`script/watch-run.sh`** follows a GitHub Actions run until it completes.
 - **`ui-test/`** has the browser tests of polar-ui (Playwright), run by `smoke-test.sh … ui`.
 - **`findings.md`:** open findings, deferred checks and future work.
-- **`plan/dependency-update.md`:** the plan for updating Spring Boot, the JDK and the rest,
-  with its progress.
+- **`api-snapshot/`** is the API as polar-ui sees it through edge-service, masked, from
+  `smoke-test.sh snapshot DIR` after `all edge`. An update compares with it
+  (`diff -r development/api-snapshot DIR`), and a commit whose differences are accepted updates it.
 
 ## Where things are
 
@@ -35,7 +36,7 @@ future work are in [findings.md](findings.md).
     tag bump here.
   - Commits in the fork come from a Claude session started in its clone, since a session in a
     worktree here runs git only in that worktree.
-- **Versions** (since the dependency update of 2026-11-07/08, `plan/dependency-update.md`): every
+- **Versions** (since the dependency update of 2026-11-07/08): every
   service on Spring Boot 4.1.2, Spring Cloud 2025.1.4, JDK 25 and Gradle 9.8.2, its image from
   the pinned `builder-noble-java-tiny` 0.0.211, and its tests on Testcontainers 2.0.5. Backing
   services: PostgreSQL 17.11, Keycloak 26.8.1, Redis 7.2, RabbitMQ 4.4; observability: Tempo
@@ -138,7 +139,8 @@ in git history at 6a9cd2a.
 - **Smoke runs from different worktrees take turns** through a lock, since they share container
   names, ports and image tags (10).
 
-From the dependency update (`plan/dependency-update.md` has each step's commit and checks):
+From the dependency update of 2026-11-07/08. Its plan, with each step's commit and checks, is in
+git history: `git show 88be8fe:development/plan/dependency-update.md`.
 - **The WebFlux services' images append `-XX:MaxDirectMemorySize=64M`** to `JAVA_TOOL_OPTIONS`
   (`BPE_APPEND_JAVA_TOOL_OPTIONS`). The buildpack's memory calculator gives direct memory 10M,
   which Netty 4.2's allocator outgrew: edge-service's responses failed.

@@ -15,10 +15,10 @@ Paths are relative to `PolarBookshop/` unless they start with `development/` or 
 
 ## The dependency update
 
-Done on 2026-11-07/08 as `development/plan/dependency-update.md` describes: every service on
-Spring Boot 4.1, Spring Cloud 2025.1 and JDK 25, the images and CI on supported releases. 12, 17,
-14, 20, 22, 25 and 29 were fixed with it; 54 came up in it. The plan's progress table has the commit,
-CI run and checks of each step; it stays until what's left below is done.
+Done on 2026-11-07/08: every service on Spring Boot 4.1, Spring Cloud 2025.1 and JDK 25, the
+images and CI on supported releases. 12, 14, 17, 20, 22, 25 and 29 were fixed with it; 54 came up
+in it. Its plan, with each step's commit, CI run and checks, is
+`git show 88be8fe:development/plan/dependency-update.md`.
 
 **Left from it:**
 - **JDK 25 warns that Netty calls a restricted method** (`System::loadLibrary`), which a future
