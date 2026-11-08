@@ -500,7 +500,7 @@ remains.
 | 0.2 CI actions, permissions, cache keys (17, part of 20) | `505240e` | CI 42392520967; each build job saved its own Gradle cache key |
 | 0.3 Tempo and Loki usage-report opt-outs (part of 12) | `79e00a2` | CI 42393361145; locally Loki and Tempo alone (the stack didn't fit) |
 | 0.4 Baseline, `smoke-test.sh snapshot`, pod memory in `--k8s` runs | `c32ced5` | CI 42396634929, whose MicroK8s job printed the pod memory below; locally `all`, `all edge`, two identical snapshots |
-| 0.5 Tag `pre-dependency-update` | `5a71b5a` | CI 42397282992; tag created locally, pushed when the user agrees |
+| 0.5 Tag `pre-dependency-update` | `5a71b5a` | CI 42397282992; tag created locally; the user decided it needn't be pushed |
 | 1 catalog: Gradle 8.14.6 | `9d4b789` | CI 42397967447; locally 48 tests |
 | 1a catalog: Boot 3.5.16, Cloud 2025.0.3, 25's fixes | `8a23984` | CI 42398791034; locally 48 tests, `all edge` 90, snapshot identical, `all` 80; `test ui` timed out under memory pressure (52) |
 | 1b catalog: Boot 4.1.2, Cloud 2025.1.4 | `f64a290` | CI 42402694516 (browser tests and MicroK8s too; catalog pod 243 MiB); locally 50 tests, `all` 80, `all edge` 90, snapshot identical. Found: Jackson 3 refuses books without `version` (fixed in the step) |
@@ -539,7 +539,8 @@ remains.
 | Browser tests: Playwright 1.65.0 (Node.js stays 24) | `20b4e35` | CI 42443741966; locally `all ui` 100. Node.js 26 needs libatomic1 on the server (sudo) |
 | MicroK8s 1.36 in CI, kubeconform against Kubernetes 1.36.2 | `7301832` | CI 42444616006 (its MicroK8s job on 1.36.2 passed 100); the server's MicroK8s stays 1.35 until refreshed (sudo) |
 | Deferred check 14: the build jobs on `ubuntu-26.04` | `0f394b4` on a temporary branch, deleted | CI 42445623106 (cancelled after the build jobs): Docker 29.4.2, API 1.54; Testcontainers 2.0.5 ran catalog's 50, order's 23 and edge's 15 tests |
-| Documentation: README's versions and settings, findings.md | this commit | |
+| Documentation: README's versions and settings, findings.md | `8f92d07` | CI 42446420525 |
+| Browser tests on Node.js 26.13.0 (`libatomic1` installed on the server) | this commit | locally `all ui` 100 on Node.js 26.13.0 |
 
 Coverage: the commit messages of 2a to 2d give edge-service's "97% line coverage", which is
 JaCoCo's instruction coverage. Its line coverage is 95.8% (95.7% in the baseline). From 3a on,

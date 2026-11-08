@@ -21,11 +21,8 @@ Spring Boot 4.1, Spring Cloud 2025.1 and JDK 25, the images and CI on supported 
 CI run and checks of each step; it stays until what's left below is done.
 
 **Left from it:**
-- **Node.js 26 for the browser tests:** it needs `libatomic1` on the development server
-  (`sudo apt install libatomic1`); they stay on Node.js 24, in maintenance to 2028-04-30.
 - **MicroK8s 1.36 on the development server** (`sudo snap refresh microk8s --channel=1.36/stable`;
   CI runs 1.36), and deferred check 4 again on it.
-- **The `pre-dependency-update` tag** (on `5a71b5a`) exists only locally until it is pushed.
 - **JDK 25 warns that Netty calls a restricted method** (`System::loadLibrary`), which a future
   JDK blocks unless native access is enabled (`--enable-native-access=ALL-UNNAMED`).
 - **Gradle 9.9** (released 2026-11-06) and **Spring Boot 4.2 with Spring Cloud 2026.0** (planned

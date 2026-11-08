@@ -40,7 +40,7 @@ future work are in [findings.md](findings.md).
   the pinned `builder-noble-java-tiny` 0.0.211, and its tests on Testcontainers 2.0.5. Backing
   services: PostgreSQL 17.11, Keycloak 26.8.1, Redis 7.2, RabbitMQ 4.4; observability: Tempo
   2.10.10, Loki 3.7.9, Grafana 12.4.14, Prometheus 3.13.5 LTS. The browser tests run Playwright
-  1.65.0 on Node.js 24, and CI's Kubernetes job MicroK8s 1.36. Production differs (33, 42).
+  1.65.0 on Node.js 26, and CI's Kubernetes job MicroK8s 1.36. Production differs (33, 42).
 
 ## Decisions
 
