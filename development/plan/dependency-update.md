@@ -535,7 +535,8 @@ remains.
 | 7cd quote-function: Gradle 9.8.2, JDK 25, builder noble-java-tiny 0.0.211, in the native job | `c77c104` | CI 42438932954, whose native jobs passed for both quote services: quote-function's native image (201 MB, peak RSS 6.3 GB) answers, and POETRY as JSON gets 400 (deferred checks 20, 24); locally 10 tests, line 94.4%, `all quote quote-function` 39 |
 | CI and smoke script on one JDK (29) | `76f73c1` | CI 42440032670; locally images build on the Java 25 toolchain from JDK 21, without JAVA_HOME, and fail clearly with a wrong SMOKE_JDK |
 | Observability: tempo.yml trimmed (12), Tempo 2.10.10, Loki and plugin 3.7.9, Grafana 12.4.14, Prometheus 3.13.5 LTS | `fe84863` | CI 42440997100; locally `all order dispatcher observability` 80, `all edge observability` 111, dashboards' metrics checked |
-| RabbitMQ 4.4 | | |
+| RabbitMQ 4.4 | `d80fec3` | CI 42442741993; locally `all` 80, `all order dispatcher observability` 80, `all --k8s` 100 (watermark 200 MiB, pod 102 MiB), deferred check 3. Found: 4.4 refuses transient non-exclusive queues (the smoke script's capture queues are durable now) |
+| Browser tests: Playwright 1.65.0 (Node.js stays 24) | | |
 
 Coverage: the commit messages of 2a to 2d give edge-service's "97% line coverage", which is
 JaCoCo's instruction coverage. Its line coverage is 95.8% (95.7% in the baseline). From 3a on,
