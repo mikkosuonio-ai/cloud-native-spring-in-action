@@ -522,7 +522,8 @@ remains.
 | 5a config: Boot 3.5.16, Cloud 2025.0.3 (Config Server 4.3) | `514afce` | CI 42429221684; locally 2 tests (1 skipped), line 33.3%, `all` 80 |
 | 5b config: Boot 4.1.2, Cloud 2025.1.4 (Config Server 5) | `0a89d5d` | CI 42430697163; locally 2 tests (1 skipped), line 33.3%, `all` 80, `all --k8s` 100 (config pod 201 MiB) |
 | 5cd config: Gradle 9.8.2 and JDK 25, builder noble-java-tiny 0.0.211 | `84e658d` | CI 42431996197; locally 2 tests (1 skipped), line 33.3%, `all` 80, `all --k8s` 100 (every app on JDK 25: catalog 224, config 227, dispatcher 205, order 267 MiB); image 398 MB (385) |
-| 6 quote: Gradle 8.14.6 | | |
+| 6 quote: Gradle 8.14.6 | `9f6baac` | CI 42432804837; locally 6 tests, `all quote quote-function` 39 |
+| 6a quote: Boot 3.5.16, Spring Native out, Native Build Tools 0.10.6 | | |
 
 Coverage: the commit messages of 2a to 2d give edge-service's "97% line coverage", which is
 JaCoCo's instruction coverage. Its line coverage is 95.8% (95.7% in the baseline). From 3a on,

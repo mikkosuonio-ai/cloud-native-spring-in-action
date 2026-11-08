@@ -112,14 +112,17 @@ The lock and the records are in `~/.local/state/polar-smoke-test/`.
   user session, as on CI runners, it runs `podman system service` for the length of the run
   instead.
 - Runs each build on a JDK installed with sdkman (`~/.sdkman/candidates/java`): 21 by default, 25
-  for the services the dependency update has moved to it (catalog-, edge-, dispatcher-, order- and config-service so far), and 17 for
-  quote-service and quote-function. Both use Spring Native 0.12, whose AOT step can't read Java 21
-  class files. This is an interim setup until all projects move to the same JDK and builds use a
-  preset `JAVA_HOME`. If a JDK is missing, install it with `sdk install java <version>`, or point
+  for the services the dependency update has moved to it (catalog-, edge-, dispatcher-, order- and
+  config-service so far), and 17 for quote-function, whose Spring Native 0.12 AOT step can't read
+  Java 21 class files. This is an interim setup until all projects move to the same JDK and builds
+  use a preset `JAVA_HOME`. If a JDK is missing, install it with `sdk install java <version>`, or point
   `SMOKE_JDK_17`/`SMOKE_JDK_21`/`SMOKE_JDK_25` at another installation.
 - Builds quote-service and quote-function as JVM images, although their `build.gradle` asks for a native one
   (`BP_NATIVE_IMAGE=true`). Native compilation needs more memory than this machine has. The init
   script overrides the variable to `false` in `afterEvaluate`, so it runs after `build.gradle` sets it.
+  With GraalVM's native plugin (Boot 3 and later), it also sets the jar's
+  `Spring-Boot-Native-Processed` to `false`: the native-image buildpack otherwise joins in anyway
+  and leaves an image with neither a native binary nor a JRE.
 - Pulls missing backing-service images with a `docker.io/` prefix. Podman here has no
   unqualified-search registries, so short names such as `rabbitmq:3.13-management` only resolve
   once the image is in local storage.

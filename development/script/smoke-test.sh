@@ -98,14 +98,14 @@ declare -A STANDALONE_PORT=([quote-service]=9101 [quote-function]=9102)
 # because native compilation needs more memory than this machine has.
 JVM_INSTEAD_OF_NATIVE=" quote-service quote-function "
 # JDK each build runs on, installed with sdkman unless SMOKE_JDK_17/21/25 name others, as
-# in CI. Spring Native 0.12 (quote-service, quote-function) can't read
+# in CI. Spring Native 0.12 (quote-function, until the dependency update replaces it) can't read
 # Java 21 class files during AOT processing, so it builds on 17. Interim until every project is
 # on the same JDK and builds can use a preset JAVA_HOME.
 JDKS=$HOME/.sdkman/candidates/java
 JDK_17=${SMOKE_JDK_17:-$JDKS/17.0.20-tem}
 JDK_25=${SMOKE_JDK_25:-$JDKS/25.0.5.0+8-tem}
 # The services moved to JDK 25 by the dependency update (development/plan/dependency-update.md).
-declare -A JDK=([quote-service]=$JDK_17 [quote-function]=$JDK_17 [catalog-service]=$JDK_25
+declare -A JDK=([quote-function]=$JDK_17 [catalog-service]=$JDK_25
                 [edge-service]=$JDK_25 [dispatcher-service]=$JDK_25 [order-service]=$JDK_25
                 [config-service]=$JDK_25)
 DEFAULT_JDK=${SMOKE_JDK_21:-$JDKS/21.0.12+1.1-tem}
@@ -289,7 +289,20 @@ allprojects {
         bindHostToBuilder = true
       }
       if (project.hasProperty('smokeTestJvmImage')) {
-        environment(['BP_NATIVE_IMAGE': 'false'])
+        // Boot 3 and later: a MapProperty; Boot 2.7: a method taking a map.
+        if (environment instanceof org.gradle.api.provider.MapProperty) {
+          environment.put('BP_NATIVE_IMAGE', 'false')
+        } else {
+          environment(['BP_NATIVE_IMAGE': 'false'])
+        }
+      }
+    }
+    // With GraalVM's native plugin, Boot 3 marks the jar Spring-Boot-Native-Processed, and the
+    // native-image buildpack then joins in even with BP_NATIVE_IMAGE false: it builds no binary,
+    // and the image gets no JRE either. Unmarked, the jar makes a plain JVM image.
+    if (project.hasProperty('smokeTestJvmImage')) {
+      tasks.matching { it.name == 'bootJar' }.configureEach {
+        manifest.attributes('Spring-Boot-Native-Processed': 'false')
       }
     }
   }
