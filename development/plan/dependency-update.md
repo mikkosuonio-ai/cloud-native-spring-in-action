@@ -540,7 +540,8 @@ remains.
 | MicroK8s 1.36 in CI, kubeconform against Kubernetes 1.36.2 | `7301832` | CI 42444616006 (its MicroK8s job on 1.36.2 passed 100); the server's MicroK8s stays 1.35 until refreshed (sudo) |
 | Deferred check 14: the build jobs on `ubuntu-26.04` | `0f394b4` on a temporary branch, deleted | CI 42445623106 (cancelled after the build jobs): Docker 29.4.2, API 1.54; Testcontainers 2.0.5 ran catalog's 50, order's 23 and edge's 15 tests |
 | Documentation: README's versions and settings, findings.md | `8f92d07` | CI 42446420525 |
-| Browser tests on Node.js 26.13.0 (`libatomic1` installed on the server) | this commit | locally `all ui` 100 on Node.js 26.13.0 |
+| Browser tests on Node.js 26.13.0 (`libatomic1` installed on the server) | `36e386a` | CI 42457462916; locally `all ui` 100 on Node.js 26.13.0 |
+| The server's MicroK8s refreshed to 1.36.2 (by the user); the smoke script waits for the registry's node port after `microk8s start` | this commit | locally `all --k8s` 100 (pods: catalog 228, config 223, dispatcher 207, order 264, Keycloak 538 MiB) and deferred check 4: a rolling restart of catalog-service under about 17 requests/s, 1243 requests all 200, no FailedPreStopHook events |
 
 Coverage: the commit messages of 2a to 2d give edge-service's "97% line coverage", which is
 JaCoCo's instruction coverage. Its line coverage is 95.8% (95.7% in the baseline). From 3a on,

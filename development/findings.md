@@ -21,8 +21,6 @@ Spring Boot 4.1, Spring Cloud 2025.1 and JDK 25, the images and CI on supported 
 CI run and checks of each step; it stays until what's left below is done.
 
 **Left from it:**
-- **MicroK8s 1.36 on the development server** (`sudo snap refresh microk8s --channel=1.36/stable`;
-  CI runs 1.36), and deferred check 4 again on it.
 - **JDK 25 warns that Netty calls a restricted method** (`System::loadLibrary`), which a future
   JDK blocks unless native access is enabled (`--enable-native-access=ALL-UNNAMED`).
 - **Gradle 9.9** (released 2026-11-06) and **Spring Boot 4.2 with Spring Cloud 2026.0** (planned

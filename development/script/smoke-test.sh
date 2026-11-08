@@ -538,7 +538,9 @@ k8s_check_cluster() {
     || { echo "Kubernetes isn't reachable with '${KUBECTL[*]}'. Start it with: sudo microk8s start" >&2; exit 2; }
   "${KUBECTL[@]}" -n kube-system get deployment coredns >/dev/null 2>&1 \
     || { echo "Cluster DNS is missing. Enable it with: microk8s enable dns" >&2; exit 2; }
+  # Right after microk8s start, the registry's pod runs some seconds before its node port answers.
   curl -sf "http://$REGISTRY/v2/" >/dev/null \
+    || wait_until 90 "the cluster's registry" curl -sf "http://$REGISTRY/v2/" \
     || { echo "No registry at $REGISTRY. Enable it with: microk8s enable registry" >&2; exit 2; }
 }
 
