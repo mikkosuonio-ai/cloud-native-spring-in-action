@@ -517,7 +517,8 @@ remains.
 | 4a order: Boot 3.5.16, Cloud 2025.0.3, jakarta, Flyway 11 | `fb3ac10` | CI 42422748096; locally 23 tests, line 97.1%, `all ui` 100, `all order dispatcher observability` 80, `all` 80, deferred check 3; snapshot: order's X-XSS-Protection (accepted) |
 | 4b order: Boot 4.1.2, Cloud 2025.1.4, Testcontainers 2 | `2e1a834` | CI 42425273061; locally 23 tests, line 97.1%, `all ui` 100, `all order dispatcher observability` 80, `all` 80, `all --k8s` 100 (order pod 272 MiB), deferred check 3; snapshot: WebFlux error timestamp ends in Z (accepted). Found: Boot 4 needs `spring-boot-starter-webclient` for `WebClient.Builder` |
 | 4c order: Gradle 9.8.2 | `339ed91` | CI 42426302384; locally 23 tests, line 97.1%, `all ui` 100 |
-| 4d order: JDK 25, builder noble-java-tiny 0.0.211 | | |
+| 4d order: JDK 25, builder noble-java-tiny 0.0.211 | `1fa870e` | CI 42427817924; locally 23 tests, line 97.1%, `all ui` 100, snapshot identical, `all order dispatcher observability` 80, `all --k8s` 100 (order pod 282 MiB); image 427 MB (400) |
+| 5 config: Gradle 8.14.6 | | |
 
 Coverage: the commit messages of 2a to 2d give edge-service's "97% line coverage", which is
 JaCoCo's instruction coverage. Its line coverage is 95.8% (95.7% in the baseline). From 3a on,
