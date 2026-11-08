@@ -112,8 +112,7 @@ The lock and the records are in `~/.local/state/polar-smoke-test/`.
   user session, as on CI runners, it runs `podman system service` for the length of the run
   instead.
 - Runs each build on a JDK installed with sdkman (`~/.sdkman/candidates/java`): 21 by default, 25
-  for the services the dependency update has moved to it (catalog-, edge-, dispatcher-, order- and
-  config-service so far), and 17 for quote-function, whose Spring Native 0.12 AOT step can't read
+  for the services the dependency update has moved to it (all but quote-function so far), and 17 for quote-function, whose Spring Native 0.12 AOT step can't read
   Java 21 class files. This is an interim setup until all projects move to the same JDK and builds
   use a preset `JAVA_HOME`. If a JDK is missing, install it with `sdk install java <version>`, or point
   `SMOKE_JDK_17`/`SMOKE_JDK_21`/`SMOKE_JDK_25` at another installation.

@@ -29,7 +29,7 @@ jobs:
         # one at a time (development/plan/dependency-update.md).
         include:
           - { project: PolarBookshop/catalog-service, java: 25 }
-          - { project: PolarBookshop/quote-service, java: 17 }
+          - { project: PolarBookshop/quote-service, java: 25 }
           - { project: PolarBookshop/quote-function, java: 17 }
           - { project: PolarBookshop/dispatcher-service, java: 25 }
           - { project: PolarBookshop/config-service, java: 25 }
@@ -425,30 +425,69 @@ jobs:
       - name: Summarize reports
         run: python3 .github/scripts/report-summary.py reports artifacts.tsv >> "$GITHUB_STEP_SUMMARY"
 
-  native-build:
-    name: Native Build and Test ${{ matrix.project }}
-    if: false   # disabled
-    runs-on: ubuntu-22.04
+  # Builds and tests the quote services as native images, as they ship (finding 20). The smoke
+  # tests run them as JVM images instead, since a native build doesn't fit on the development
+  # server. nativeTest runs the tests in a native executable; the native image from the buildpacks
+  # then answers a few requests, among them an unknown genre, which must stay a client error.
+  native:
+    name: Native image ${{ matrix.project }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        project: [
-          Chapter16/16-end/quote-service,
-          Chapter16/16-end/quote-function,
-        ]
+        include:
+          - project: PolarBookshop/quote-service
+            image: quote-service
+            port: 9101
+            ok: /quotes /quotes/random /quotes/random/FANTASY
+            client-error: /quotes/random/POETRY
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
       - name: Set up GraalVM
         uses: graalvm/setup-graalvm@v1
         with:
-          java-version: '17'
-          distribution: 'graalvm'
+          java-version: '25'
+          distribution: graalvm-community
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build, unit tests and integration tests
+          cache: gradle
+          cache-dependency-path: |
+            ${{ matrix.project }}/*.gradle
+            ${{ matrix.project }}/gradle/wrapper/gradle-wrapper.properties
+      - name: Native tests and executable
         run: |
-          cd ${{ matrix.project }}
           chmod +x gradlew
-          ./gradlew nativeBuild
+          ./gradlew nativeTest nativeCompile
+      - name: Native image with the buildpacks
+        run: ./gradlew bootBuildImage
+      # Each OK path answers 200 with quotes whose genre field made it into the JSON, which needs
+      # the records' reflection metadata in a native image.
+      - name: Check the native image
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+          PORT: ${{ matrix.port }}
+          OK: ${{ matrix.ok }}
+          CLIENT_ERROR: ${{ matrix.client-error }}
+        run: |
+          docker image inspect "docker.io/library/$IMAGE:latest" --format 'Image size: {{.Size}}'
+          docker run -d --name app -p "$PORT:$PORT" "docker.io/library/$IMAGE:latest"
+          trap 'docker logs app' EXIT
+          for i in $(seq 1 30); do curl -sf -o /dev/null "http://localhost:$PORT${OK%% *}" && break; sleep 1; done
+          status=0
+          for path in $OK; do
+            body=$(curl -s -w '\n%{http_code}' "http://localhost:$PORT$path")
+            code=${body##*$'\n'}; body=${body%$'\n'*}
+            echo "GET $path: $code ${body:0:200}"
+            [[ $code == 200 && $body == *'"genre":'* ]] || { echo "::error::GET $path: expected 200 with quotes"; status=1; }
+          done
+          code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT$CLIENT_ERROR")
+          echo "GET $CLIENT_ERROR: $code"
+          [[ $code == 4* ]] || { echo "::error::GET $CLIENT_ERROR: expected a client error, got $code"; status=1; }
+          exit "$status"

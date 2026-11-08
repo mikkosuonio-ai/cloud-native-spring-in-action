@@ -446,6 +446,9 @@ on the machine rather than skip a check.
 - Spring Retry and OkHttp no longer managed by Boot 4.
 - Netty 4.2's direct memory under the buildpack's 10M default (found in edge-service's step b).
 - Jackson 3's stricter defaults, such as null for primitives (found in catalog-service's step b).
+- JDK 25 warns that Netty calls a restricted method (`System::loadLibrary`) and that this will be
+  blocked in a future release unless native access is enabled (`--enable-native-access`); seen
+  from step 6d on, in tests and JVM images. To settle before a JDK that blocks it.
 - Gradle 9's removed APIs.
 - RabbitMQ 4's queue deprecations.
 - Native images needing reflection hints.
@@ -524,7 +527,8 @@ remains.
 | 5cd config: Gradle 9.8.2 and JDK 25, builder noble-java-tiny 0.0.211 | `84e658d` | CI 42431996197; locally 2 tests (1 skipped), line 33.3%, `all` 80, `all --k8s` 100 (every app on JDK 25: catalog 224, config 227, dispatcher 205, order 267 MiB); image 398 MB (385) |
 | 6 quote: Gradle 8.14.6 | `9f6baac` | CI 42432804837; locally 6 tests, `all quote quote-function` 39 |
 | 6a quote: Boot 3.5.16, Spring Native out, Native Build Tools 0.10.6 | `ba0883d` | CI 42433337372; locally 6 tests, line 91.3%, `all quote quote-function` 39. Found: the smoke script's JVM override needed Boot 3's MapProperty and an unmarked jar |
-| 6b quote: Boot 4.1.2, Native Build Tools 1.1.14 | | |
+| 6b quote: Boot 4.1.2, Native Build Tools 1.1.14 | `f8fab02` | CI 42434058681; locally 6 tests, line 91.3%, `all quote quote-function` 39 |
+| 6cd quote: Gradle 9.8.2, JDK 25, builder noble-java-tiny 0.0.211, CI's native job (20) | | |
 
 Coverage: the commit messages of 2a to 2d give edge-service's "97% line coverage", which is
 JaCoCo's instruction coverage. Its line coverage is 95.8% (95.7% in the baseline). From 3a on,

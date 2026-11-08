@@ -11,7 +11,7 @@ version = '0.0.1-SNAPSHOT'
 
 java {
 	toolchain {
-		languageVersion = JavaLanguageVersion.of(17)
+		languageVersion = JavaLanguageVersion.of(25)
 	}
 }
 
@@ -26,6 +26,8 @@ dependencies {
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-webflux-test'
 	testImplementation 'io.projectreactor:reactor-test'
+	// Gradle 9 no longer puts a JUnit Platform launcher on the test runtime classpath.
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 tasks.named('test') {
@@ -41,11 +43,13 @@ tasks.named('jacocoTestReport') {
 }
 
 tasks.named('bootBuildImage') {
-	builder = 'docker.io/paketobuildpacks/builder-jammy-tiny'
+	// A version, not latest: on 2026-10-23 latest became an arm64-only image, which can't build on amd64.
+	builder = 'docker.io/paketobuildpacks/builder-noble-java-tiny:0.0.211'
 	// The JVM options matter only to a JVM image, such as the smoke tests build: Netty 4.2 (Boot 4)
 	// outgrows the 10M of direct memory the buildpack's memory calculator gives it, as
 	// edge-service's responses showed.
 	environment = ['BP_NATIVE_IMAGE': 'true',
+			'BP_JVM_VERSION': '25',
 			'BPE_DELIM_JAVA_TOOL_OPTIONS': ' ',
 			'BPE_APPEND_JAVA_TOOL_OPTIONS': '-XX:MaxDirectMemorySize=64M']
 	imageName = "${project.name}"
