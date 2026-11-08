@@ -536,7 +536,8 @@ remains.
 | CI and smoke script on one JDK (29) | `76f73c1` | CI 42440032670; locally images build on the Java 25 toolchain from JDK 21, without JAVA_HOME, and fail clearly with a wrong SMOKE_JDK |
 | Observability: tempo.yml trimmed (12), Tempo 2.10.10, Loki and plugin 3.7.9, Grafana 12.4.14, Prometheus 3.13.5 LTS | `fe84863` | CI 42440997100; locally `all order dispatcher observability` 80, `all edge observability` 111, dashboards' metrics checked |
 | RabbitMQ 4.4 | `d80fec3` | CI 42442741993; locally `all` 80, `all order dispatcher observability` 80, `all --k8s` 100 (watermark 200 MiB, pod 102 MiB), deferred check 3. Found: 4.4 refuses transient non-exclusive queues (the smoke script's capture queues are durable now) |
-| Browser tests: Playwright 1.65.0 (Node.js stays 24) | | |
+| Browser tests: Playwright 1.65.0 (Node.js stays 24) | `20b4e35` | CI 42443741966; locally `all ui` 100. Node.js 26 needs libatomic1 on the server (sudo) |
+| MicroK8s 1.36 in CI, kubeconform against Kubernetes 1.36.2 | | |
 
 Coverage: the commit messages of 2a to 2d give edge-service's "97% line coverage", which is
 JaCoCo's instruction coverage. Its line coverage is 95.8% (95.7% in the baseline). From 3a on,

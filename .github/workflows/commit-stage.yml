@@ -86,8 +86,8 @@ jobs:
     env:
       KUBECONFORM_VERSION: v0.8.0
       KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
-      # The Kubernetes release of MicroK8s 1.35/stable, which the smoke tests deploy to.
-      KUBERNETES_VERSION: 1.35.0
+      # The Kubernetes release of MicroK8s 1.36/stable, which the smoke tests deploy to.
+      KUBERNETES_VERSION: 1.36.2
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -309,7 +309,7 @@ jobs:
         run: |
           # The Snap Store sometimes doesn't answer.
           for attempt in 1 2 3; do
-            sudo snap install microk8s --classic --channel=1.35/stable && break
+            sudo snap install microk8s --classic --channel=1.36/stable && break
             (( attempt < 3 )) || exit 1
             echo "::warning::snap install failed, retrying in 30 s"
             sleep 30

@@ -56,7 +56,8 @@ the review of 2026-10-19. The plans are in git history:
 - **Podman in CI too,** not Docker, so that the smoke script has one code path.
 - **The script is the single source of the smoke tests.** It lives in `development/script/`, CI
   and the skill both call it, and changes made for CI leave its local behaviour unchanged.
-- **MicroK8s, not kind,** on the runner as on the server (snap, `1.35/stable`). The script's
+- **MicroK8s, not kind,** on the runner as on the server (snap, `1.36/stable` in CI; the server
+  is still on 1.35 until `sudo snap refresh microk8s --channel=1.36/stable`). The script's
   `--k8s` mode reaches the ClusterIPs from the host and pushes to the `localhost:32000` registry,
   which kind doesn't offer: its cluster runs inside a Docker container, and its Podman support is
   experimental, so CI would test another setup than the local runs. The job uses MicroK8s' own
