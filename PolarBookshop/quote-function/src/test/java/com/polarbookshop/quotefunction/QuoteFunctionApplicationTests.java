@@ -12,11 +12,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@AutoConfigureWebTestClient
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ExtendWith(OutputCaptureExtension.class)
 class QuoteFunctionApplicationTests {
@@ -62,6 +64,18 @@ class QuoteFunctionApplicationTests {
 				.post()
 				.uri("/genreQuote")
 				.bodyValue("POETRY")
+				.exchange()
+				.expectStatus().isBadRequest();
+	}
+
+	// As clients send it: JSON. Jackson rejects the unknown genre; it must stay a client error.
+	@Test
+	void whenGenreQuoteWithUnknownGenreAsJsonThenBadRequest() {
+		webTestClient
+				.post()
+				.uri("/genreQuote")
+				.contentType(MediaType.APPLICATION_JSON)
+				.bodyValue("\"POETRY\"")
 				.exchange()
 				.expectStatus().isBadRequest();
 	}
