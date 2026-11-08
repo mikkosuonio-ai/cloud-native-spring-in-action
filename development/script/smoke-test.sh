@@ -436,7 +436,7 @@ up() {
   # grafana's depends_on also brings up loki and fluent-bit; nothing sends logs to them.
   needs_observability && backing+=(prometheus tempo grafana)
   # Podman has no unqualified-search registries here, so short names like
-  # "rabbitmq:3.13-management" only work once the image is in local storage. That includes the
+  # "rabbitmq:4.4-management" only work once the image is in local storage. That includes the
   # services grafana's depends_on starts.
   local img attempt pulled=("${backing[@]}")
   needs_observability && pulled+=(loki fluent-bit)
@@ -772,9 +772,11 @@ consumer_bound() { # queue
 }
 # Capture messages sent to an exchange in a temporary queue. The services' exchanges are
 # normally declared on first use, so declare it here (same type) to bind before that.
+# Durable: RabbitMQ 4.4 refuses transient queues that aren't exclusive, and the management API
+# can't hold an exclusive one. capture_stop deletes it, and capture_start empties a leftover.
 capture_start() { # exchange queue -> prints True when the binding is in place
   rabbit PUT "/exchanges/%2F/$1" '{"type":"topic","durable":true}'
-  rabbit PUT "/queues/%2F/$2" '{"durable":false,"auto_delete":false}'
+  rabbit PUT "/queues/%2F/$2" '{"durable":true,"auto_delete":false}'
   rabbit POST "/bindings/%2F/e/$1/q/$2" '{"routing_key":"#"}'
   rabbit DELETE "/queues/%2F/$2/contents"
   rabbit GET "/exchanges/%2F/$1/bindings/source"

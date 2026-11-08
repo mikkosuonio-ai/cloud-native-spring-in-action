@@ -74,10 +74,11 @@ doesn't reach it.
   is described in `OrderService`.
 - **Left open:** the event still isn't sent later. **Fix:** a transactional outbox, after the
   update. The send also still blocks the R2DBC thread until the connection timeout (26).
-- **Seen in deferred check 3** (dependency update, steps 4a and 4b): after RabbitMQ's first
-  restart, order-service's sends failed for about 20 s more, though RabbitMQ was up ("Connect
-  timed out", "UnknownHost"); after later restarts they worked at once. Podman gives the restarted
-  container a new IP each time, so probably the JVM's DNS cache. Orders were FAILED, never
+- **Seen in deferred check 3** (dependency update, steps 4a and 4b, and with RabbitMQ 4.4): after
+  one of three RabbitMQ restarts (the first, or with 4.4 the third), order-service's sends failed
+  for about 20 s more, though RabbitMQ was up ("Connect timed out", "UnknownHost"); after the
+  others they worked at once. Podman gives the restarted container a new IP each time, so
+  probably the JVM's DNS cache. Orders were FAILED, never
   REJECTED, and order-service recovered by itself. Not compared with the version before the
   update.
 

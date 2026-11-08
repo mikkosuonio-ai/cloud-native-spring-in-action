@@ -120,7 +120,7 @@ The lock and the records are in `~/.local/state/polar-smoke-test/`.
   `Spring-Boot-Native-Processed` to `false`: the native-image buildpack otherwise joins in anyway
   and leaves an image with neither a native binary nor a JRE.
 - Pulls missing backing-service images with a `docker.io/` prefix. Podman here has no
-  unqualified-search registries, so short names such as `rabbitmq:3.13-management` only resolve
+  unqualified-search registries, so short names such as `rabbitmq:4.4-management` only resolve
   once the image is in local storage.
 - Starts only the backing services the selection needs with podman-compose:
   - `polar-postgres` and `polar-keycloak` for catalog, order and edge;
