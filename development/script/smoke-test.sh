@@ -98,14 +98,12 @@ declare -A STANDALONE_PORT=([quote-service]=9101 [quote-function]=9102)
 # because native compilation needs more memory than this machine has.
 JVM_INSTEAD_OF_NATIVE=" quote-service quote-function "
 # JDK each build runs on, installed with sdkman unless SMOKE_JDK_17/21/25 name others, as
-# in CI. Spring Native 0.12 (quote-function, until the dependency update replaces it) can't read
-# Java 21 class files during AOT processing, so it builds on 17. Interim until every project is
-# on the same JDK and builds can use a preset JAVA_HOME.
+# in CI. Interim until every project is on the same JDK and builds can use a preset JAVA_HOME.
 JDKS=$HOME/.sdkman/candidates/java
 JDK_17=${SMOKE_JDK_17:-$JDKS/17.0.20-tem}
 JDK_25=${SMOKE_JDK_25:-$JDKS/25.0.5.0+8-tem}
 # The services moved to JDK 25 by the dependency update (development/plan/dependency-update.md).
-declare -A JDK=([quote-function]=$JDK_17 [catalog-service]=$JDK_25
+declare -A JDK=([catalog-service]=$JDK_25
                 [edge-service]=$JDK_25 [dispatcher-service]=$JDK_25 [order-service]=$JDK_25
                 [config-service]=$JDK_25 [quote-service]=$JDK_25)
 DEFAULT_JDK=${SMOKE_JDK_21:-$JDKS/21.0.12+1.1-tem}

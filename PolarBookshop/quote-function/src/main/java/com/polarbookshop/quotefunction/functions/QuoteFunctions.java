@@ -51,9 +51,14 @@ public class QuoteFunctions {
 				});
 	}
 
+	// A reactive consumer, so that composing it after genreQuote works: Spring Cloud Function 4.3
+	// and 5.0 wrap a plain Consumer that follows a function with a Publisher output in a wrapper
+	// that casts the output to Flux, and genreQuote's Mono failed it with a ClassCastException
+	// (500). A Mono takes genreQuote's output as it is, and one quote per request on its own.
 	@Bean
-	Consumer<Quote> logQuote() {
-		return quote -> log.info("Quote: '{}' by {}", quote.content(), quote.author());
+	Consumer<Mono<Quote>> logQuote() {
+		return quote -> quote
+				.subscribe(q -> log.info("Quote: '{}' by {}", q.content(), q.author()));
 	}
 
 }

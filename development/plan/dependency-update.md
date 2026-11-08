@@ -529,7 +529,8 @@ remains.
 | 6a quote: Boot 3.5.16, Spring Native out, Native Build Tools 0.10.6 | `ba0883d` | CI 42433337372; locally 6 tests, line 91.3%, `all quote quote-function` 39. Found: the smoke script's JVM override needed Boot 3's MapProperty and an unmarked jar |
 | 6b quote: Boot 4.1.2, Native Build Tools 1.1.14 | `f8fab02` | CI 42434058681; locally 6 tests, line 91.3%, `all quote quote-function` 39 |
 | 6cd quote: Gradle 9.8.2, JDK 25, builder noble-java-tiny 0.0.211, CI's native job (20) | `f4d779f` | CI 42434808305, whose native job passed nativeTest and nativeCompile (8.5 min, peak RSS 4.5 GB), built the native image with the buildpacks (166 MB) and checked its answers, without added reflection hints; locally 6 tests, line 91.3%, `all quote quote-function` 39 |
-| 7 quote-function: Gradle 8.14.6 | | |
+| 7 quote-function: Gradle 8.14.6 | `a8567e6` | CI 42435930279; locally 9 tests, `all quote quote-function` 39 |
+| 7a quote-function: Boot 3.5.16, Spring Native out, jakarta.servlet, logQuote reactive | | |
 
 Coverage: the commit messages of 2a to 2d give edge-service's "97% line coverage", which is
 JaCoCo's instruction coverage. Its line coverage is 95.8% (95.7% in the baseline). From 3a on,

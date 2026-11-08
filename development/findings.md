@@ -119,6 +119,18 @@ Podman 4.9. catalog-, edge- and order-service have Boot manage it since the depe
 `OrderService` ignores an id it doesn't know, and `OrderServiceTests` locks in the silence.
 **Fix:** log a warning, and change the test.
 
+### 54. Spring Cloud Function fails a reactive function composed with a plain Consumer
+
+From Spring Cloud Function 4.3 on (still in 5.0.5), composing a function with a `Mono` output and
+a non-reactive `Consumer` (`/genreQuote,logQuote`) fails with a ClassCastException: the framework
+wraps the consumer (its GH-1141 code) in a `Consumer<Flux>` and passes it the `Mono`. The request
+got 500; 3.2 composed them. Since the dependency update (step 7a) `logQuote` is a
+`Consumer<Mono<Quote>>`, which the framework doesn't wrap, and
+`QuoteFunctionApplicationTests` checks that the composed call logs the quote. Also seen: a
+composed call whose body isn't valid JSON (`FANTASY` without quotes) now answers 202 and only logs
+the conversion failure; 3.2 accepted it. **Left:** reporting it upstream (not done, an outward
+action for the user to decide), and a plain `Consumer` again once fixed.
+
 ### 24. quote-function logs client errors as server errors
 
 Every 400 (an unknown or missing genre) logs ERROR "Failed to invoke function" with a stack trace.

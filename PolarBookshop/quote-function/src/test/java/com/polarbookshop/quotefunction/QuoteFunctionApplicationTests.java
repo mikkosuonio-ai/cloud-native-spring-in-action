@@ -1,17 +1,24 @@
 package com.polarbookshop.quotefunction;
 
+import java.time.Duration;
+
 import com.polarbookshop.quotefunction.domain.Genre;
 import com.polarbookshop.quotefunction.domain.Quote;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ExtendWith(OutputCaptureExtension.class)
 class QuoteFunctionApplicationTests {
 
 	@Autowired
@@ -77,15 +84,20 @@ class QuoteFunctionApplicationTests {
 				.expectStatus().isBadRequest();
 	}
 
+	// The composition used to answer 202 while it failed: Spring Cloud Function 4.3 threw a
+	// ClassCastException after a Mono output, and an invalid JSON body is dropped with only a log
+	// entry. So the test sends JSON, as clients do, and checks that the quote is logged.
 	@Test
-	void whenGenreQuoteLogQuoteThenReturn() {
+	void whenGenreQuoteLogQuoteThenReturnAndLogged(CapturedOutput output) {
 		webTestClient
 				.post()
 				.uri("/genreQuote,logQuote")
 				.contentType(MediaType.APPLICATION_JSON)
-				.bodyValue("FANTASY")
+				.bodyValue("\"FANTASY\"")
 				.exchange()
-				.expectStatus().is2xxSuccessful();
+				.expectStatus().isAccepted();
+		Awaitility.await().atMost(Duration.ofSeconds(5))
+				.untilAsserted(() -> assertThat(output.getOut()).containsPattern("Quote: '.*' by (Casper|Dobby)"));
 	}
 
 }
