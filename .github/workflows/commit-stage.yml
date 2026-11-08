@@ -33,7 +33,7 @@ jobs:
           - { project: PolarBookshop/quote-function, java: 17 }
           - { project: PolarBookshop/dispatcher-service, java: 25 }
           - { project: PolarBookshop/config-service, java: 17 }
-          - { project: PolarBookshop/order-service, java: 17 }
+          - { project: PolarBookshop/order-service, java: 25 }
           - { project: PolarBookshop/edge-service, java: 25 }
     defaults:
       run:
