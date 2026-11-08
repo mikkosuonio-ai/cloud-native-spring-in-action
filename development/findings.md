@@ -34,7 +34,7 @@ safety net reliable were fixed first. What the review left for the update, and f
 - Keycloak 26 on Kubernetes has little room under its 750Mi limit: 525 MiB of its own memory
   after a smoke run, plus about 200 MiB of page cache.
 
-**As part of the update:** 14 and 12 (with Tempo and Loki); 17, 20, 22, 25 and 29 are fixed.
+**As part of the update:** 14; 12, 17, 20, 22, 25 and 29 are fixed.
 
 **After the update:**
 - 24, 38: the update changes the Spring Cloud Function web layer and the gateway.
@@ -88,14 +88,6 @@ edge-service it has no `extra_hosts` entry in `polar-deployment/docker/docker-co
 adds the name by itself, so neither local runs nor CI show it. **Fix:**
 `extra_hosts: ["host.docker.internal:host-gateway"]`.
 
-### 12. `tempo.yml` is Grafana's demo config
-
-`polar-deployment/docker/observability/tempo/tempo.yml` points at a memcached that compose doesn't
-define (a DNS error every minute), and turns on cost attribution, demo retention and the
-local-blocks processor. **Fix:** trim `tempo.yml`, and bind the OTLP receivers to `0.0.0.0:4317`
-and `0.0.0.0:4318` (needed since Tempo 2.7), with the observability images' update. Tempo and
-Loki no longer report usage to Grafana Labs since step 0.3 of the dependency update.
-
 ### 14. Testcontainers on `ubuntu-26.04` runners
 
 `ubuntu-latest` moves to `ubuntu-26.04` (Docker 29, minimum API 1.44) in November 2026, where
@@ -147,8 +139,11 @@ the handler to `FunctionController`, and log client errors below ERROR.
 
 Under Podman the apps' logs can't reach fluent-bit (Podman 4.9 has no `fluentd` log driver); the
 smoke test checks neither Loki nor fluent-bit; exemplars are dropped because Prometheus' exemplar
-storage is off; the native-histograms flag is experimental. **Fix:** exemplar storage if exemplars
-are wanted, and Loki checks in the observability smoke test.
+storage is off (the `exemplar-storage` feature flag); some dashboard panels have no data in this
+setup: Jetty's, the Tomcat thread panels (Tomcat's MBean registry is off), `process_memory_*` and
+`process_threads` (from a library the services don't use), and Resilience4j's retries
+(edge-service retries with the gateway's Retry filter). **Fix:** exemplar storage if exemplars are
+wanted, Loki checks in the observability smoke test, and dashboards without the dead panels.
 
 ### 30. The README doesn't say to clean up after Testcontainers without Ryuk
 

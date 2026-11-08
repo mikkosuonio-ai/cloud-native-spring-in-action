@@ -209,7 +209,7 @@ services:
   # Observability
 
   grafana:
-    image: grafana/grafana-oss:12.1.1@sha256:a1701c2180249361737a99a01bc770db39381640e4d631825d38ff4535efa47d
+    image: grafana/grafana:12.4.14@sha256:ae509d9ae8c1021ca32ec370a9ca975d40165eda9fccd1e1102d317ff8787cd7
     container_name: grafana
     depends_on:
       - loki
@@ -226,7 +226,7 @@ services:
       - ./observability/grafana/grafana.ini:/etc/grafana/grafana.ini
 
   loki:
-    image: grafana/loki:3.5.4@sha256:0b9846377113bc6a56eea2e56fe5963afdea2962178bd171190e30fa25157542
+    image: grafana/loki:3.7.9@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28
     container_name: loki
     # The image's own config, without the anonymous usage reports to Grafana Labs (finding 12).
     command:
@@ -238,7 +238,7 @@ services:
       - "3100:3100"
 
   fluent-bit:
-    image: grafana/fluent-bit-plugin-loki:3.5.4@sha256:5677ca110d93fcb70c2600ab65f4223513a16a2fd8c700599c44e97048d19e36
+    image: grafana/fluent-bit-plugin-loki:3.7.9@sha256:3cbdfce6a5db00efff0e1ff4282b5ed9d50805b76f1a90495fcf469e646d3ebe
     container_name: fluent-bit
     ports:
       - "24224:24224"
@@ -248,22 +248,21 @@ services:
       - ./observability/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf
 
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
+    image: quay.io/prometheus/prometheus:v3.13.5@sha256:aafa9d694e6a883c02db516d9f6e5b84e14195f49a2a6456a4cca815edda72b9
     container_name: prometheus
-    # Defaults of the image, plus the endpoint Tempo's metrics generator remote-writes to.
-    # Tempo also sends native histograms, and Prometheus rejects the whole write without them.
+    # Defaults of the image, plus the endpoint Tempo's metrics generator remote-writes to. Tempo
+    # also sends native histograms, which Prometheus takes without a feature flag since 3.8.
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --web.enable-remote-write-receiver
-      - --enable-feature=native-histograms
     ports:
       - "9090:9090"
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
 
   tempo:
-    image: grafana/tempo:2.8.2@sha256:0ef775495967cd5d7a6b2e146b6ea695d624803c8db8349fb8ce4164f719f9b7
+    image: grafana/tempo:2.10.10@sha256:12b0820f13ffa10ce956b6e9acc3b03f3cffded99109be6cc09d106fe56e5d38
     container_name: tempo
     command: -config.file=/etc/tempo-config.yml
     ports:

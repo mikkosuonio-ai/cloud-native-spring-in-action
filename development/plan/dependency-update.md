@@ -533,7 +533,8 @@ remains.
 | 7a quote-function: Boot 3.5.16, Spring Native out, jakarta.servlet, logQuote reactive | `df29037` | CI 42436854211; locally 9 tests, line 94.4%, `all quote quote-function` 39. Found: Function 4.3 fails a Mono function composed with a plain Consumer (54) |
 | 7b quote-function: Boot 4.1.2, Function 5, Jackson 3's input errors as 400 | `4ffac48` | CI 42437921282; locally 10 tests, line 94.4%, `all quote quote-function` 39. Found: an unknown genre in JSON gave 500 under Function 5 |
 | 7cd quote-function: Gradle 9.8.2, JDK 25, builder noble-java-tiny 0.0.211, in the native job | `c77c104` | CI 42438932954, whose native jobs passed for both quote services: quote-function's native image (201 MB, peak RSS 6.3 GB) answers, and POETRY as JSON gets 400 (deferred checks 20, 24); locally 10 tests, line 94.4%, `all quote quote-function` 39 |
-| CI and smoke script on one JDK (29) | | |
+| CI and smoke script on one JDK (29) | `76f73c1` | CI 42440032670; locally images build on the Java 25 toolchain from JDK 21, without JAVA_HOME, and fail clearly with a wrong SMOKE_JDK |
+| Observability: tempo.yml trimmed (12), Tempo 2.10.10, Loki and plugin 3.7.9, Grafana 12.4.14, Prometheus 3.13.5 LTS | | |
 
 Coverage: the commit messages of 2a to 2d give edge-service's "97% line coverage", which is
 JaCoCo's instruction coverage. Its line coverage is 95.8% (95.7% in the baseline). From 3a on,
