@@ -11,7 +11,7 @@ version = '0.0.1-SNAPSHOT'
 
 java {
 	toolchain {
-		languageVersion = JavaLanguageVersion.of(17)
+		languageVersion = JavaLanguageVersion.of(25)
 	}
 }
 
@@ -31,6 +31,8 @@ dependencies {
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-webflux-test'
 	testImplementation 'io.projectreactor:reactor-test'
+	// Gradle 9 no longer puts a JUnit Platform launcher on the test runtime classpath.
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 dependencyManagement {
@@ -52,8 +54,9 @@ tasks.named('jacocoTestReport') {
 }
 
 tasks.named('bootBuildImage') {
-	builder = 'docker.io/paketobuildpacks/builder-jammy-tiny'
-	environment = ['BP_NATIVE_IMAGE': 'true']
+	// A version, not latest: on 2026-10-23 latest became an arm64-only image, which can't build on amd64.
+	builder = 'docker.io/paketobuildpacks/builder-noble-java-tiny:0.0.211'
+	environment = ['BP_NATIVE_IMAGE': 'true', 'BP_JVM_VERSION': '25']
 	imageName = "${project.name}"
 
 	docker {

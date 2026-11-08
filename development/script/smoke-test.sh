@@ -105,7 +105,7 @@ JDK_25=${SMOKE_JDK_25:-$JDKS/25.0.5.0+8-tem}
 # The services moved to JDK 25 by the dependency update (development/plan/dependency-update.md).
 declare -A JDK=([catalog-service]=$JDK_25
                 [edge-service]=$JDK_25 [dispatcher-service]=$JDK_25 [order-service]=$JDK_25
-                [config-service]=$JDK_25 [quote-service]=$JDK_25)
+                [config-service]=$JDK_25 [quote-service]=$JDK_25 [quote-function]=$JDK_25)
 DEFAULT_JDK=${SMOKE_JDK_21:-$JDKS/21.0.12+1.1-tem}
 has() { [[ " ${SERVICES[*]} " == *" $1 "* ]]; }
 needs_keycloak() { has catalog-service; }

@@ -30,7 +30,7 @@ jobs:
         include:
           - { project: PolarBookshop/catalog-service, java: 25 }
           - { project: PolarBookshop/quote-service, java: 25 }
-          - { project: PolarBookshop/quote-function, java: 17 }
+          - { project: PolarBookshop/quote-function, java: 25 }
           - { project: PolarBookshop/dispatcher-service, java: 25 }
           - { project: PolarBookshop/config-service, java: 25 }
           - { project: PolarBookshop/order-service, java: 25 }
@@ -444,6 +444,14 @@ jobs:
             port: 9101
             ok: /quotes /quotes/random /quotes/random/FANTASY
             client-error: /quotes/random/POETRY
+          # The unknown genre goes in a JSON body, which FunctionInputExceptionHandler must still
+          # turn into a client error in a native image (deferred checks 20 and 24).
+          - project: PolarBookshop/quote-function
+            image: quote-function
+            port: 9102
+            ok: /randomQuote /allQuotes
+            client-error: /genreQuote
+            client-error-body: '"POETRY"'
     defaults:
       run:
         working-directory: ${{ matrix.project }}
@@ -475,6 +483,7 @@ jobs:
           PORT: ${{ matrix.port }}
           OK: ${{ matrix.ok }}
           CLIENT_ERROR: ${{ matrix.client-error }}
+          CLIENT_ERROR_BODY: ${{ matrix.client-error-body }}
         run: |
           docker image inspect "docker.io/library/$IMAGE:latest" --format 'Image size: {{.Size}}'
           docker run -d --name app -p "$PORT:$PORT" "docker.io/library/$IMAGE:latest"
@@ -487,7 +496,13 @@ jobs:
             echo "GET $path: $code ${body:0:200}"
             [[ $code == 200 && $body == *'"genre":'* ]] || { echo "::error::GET $path: expected 200 with quotes"; status=1; }
           done
-          code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT$CLIENT_ERROR")
-          echo "GET $CLIENT_ERROR: $code"
-          [[ $code == 4* ]] || { echo "::error::GET $CLIENT_ERROR: expected a client error, got $code"; status=1; }
+          # A GET, or a POST of CLIENT_ERROR_BODY as JSON when the matrix gives one.
+          request=(GET); args=()
+          if [[ -n $CLIENT_ERROR_BODY ]]; then
+            request=(POST "$CLIENT_ERROR_BODY")
+            args=(-H 'Content-Type: application/json' -d "$CLIENT_ERROR_BODY")
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' "${args[@]}" "http://localhost:$PORT$CLIENT_ERROR")
+          echo "${request[*]} $CLIENT_ERROR: $code"
+          [[ $code == 4* ]] || { echo "::error::${request[*]} $CLIENT_ERROR: expected a client error, got $code"; status=1; }
           exit "$status"
