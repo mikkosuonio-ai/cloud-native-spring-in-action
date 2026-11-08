@@ -57,8 +57,7 @@ CI runs the same script. It builds each image once with `build`, in a job of its
 smoke test jobs run without `--rebuild` on those images. Three environment variables are for CI,
 and for machines set up differently from this one (a fourth, `SMOKE_POLAR_UI_IMAGE`, is in
 "Browser tests"):
-- `SMOKE_JDK_17`, `SMOKE_JDK_21` and `SMOKE_JDK_25` name the JDKs for the image builds instead of
-  the sdkman ones.
+- `SMOKE_JDK` names the JDK the image builds' Gradle runs on instead of `JAVA_HOME`.
 - `SMOKE_JUNIT=<file>` makes `test` and `all` also write every check to the file as a JUnit test
   case. A run that stops before its tests finish, such as one whose `up` fails, gets an error
   case named after the step it stopped in.
@@ -111,10 +110,9 @@ The lock and the records are in `~/.local/state/polar-smoke-test/`.
   asks Podman for the socket's path and starts `podman.socket` with systemd. Without a systemd
   user session, as on CI runners, it runs `podman system service` for the length of the run
   instead.
-- Runs each build on a JDK installed with sdkman (`~/.sdkman/candidates/java`): 21 by default, 25
-  for the services the dependency update has moved to it (all of them now). This is
-  an interim setup until all projects move to the same JDK and builds use a preset `JAVA_HOME`. If a JDK is missing, install it with `sdk install java <version>`, or point
-  `SMOKE_JDK_17`/`SMOKE_JDK_21`/`SMOKE_JDK_25` at another installation.
+- Runs the image builds' Gradle on `SMOKE_JDK`, or else `JAVA_HOME`. Every `build.gradle` asks for
+  Java 25 in a toolchain, which Gradle finds itself among the installed JDKs (sdkman's here,
+  setup-java's in CI); if it's missing, install it with `sdk install java 25.0.5.0+8-tem`.
 - Builds quote-service and quote-function as JVM images, although their `build.gradle` asks for a native one
   (`BP_NATIVE_IMAGE=true`). Native compilation needs more memory than this machine has. The init
   script overrides the variable to `false` in `afterEvaluate`, so it runs after `build.gradle` sets it.

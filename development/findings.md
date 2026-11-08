@@ -34,8 +34,7 @@ safety net reliable were fixed first. What the review left for the update, and f
 - Keycloak 26 on Kubernetes has little room under its 750Mi limit: 525 MiB of its own memory
   after a smoke run, plus about 200 MiB of page cache.
 
-**As part of the update:** 14, 29, 12 (with Tempo and Loki), 20 (the native job, after
-Spring Native 0.12 is replaced by Boot 3's native support).
+**As part of the update:** 14 and 12 (with Tempo and Loki); 17, 20, 22, 25 and 29 are fixed.
 
 **After the update:**
 - 24, 38: the update changes the Spring Cloud Function web layer and the gateway.
@@ -100,19 +99,11 @@ Loki no longer report usage to Grafana Labs since step 0.3 of the dependency upd
 ### 14. Testcontainers on `ubuntu-26.04` runners
 
 `ubuntu-latest` moves to `ubuntu-26.04` (Docker 29, minimum API 1.44) in November 2026, where
-Testcontainers before 1.21.4 fails with "client version 1.32 is too old". catalog, order and
-edge pin 1.21.4 since the review of 2026-11-04 (46), which also stopped order's 1.19.8 from
-downgrading the 1.21.3 that testcontainers-keycloak 3.9.0 asks for; it works with the local
-Podman 4.9. catalog-, edge- and order-service have Boot manage it since the dependency update.
-**Left:** the run on an `ubuntu-26.04` runner (deferred checks). The per-service workflows under
+Testcontainers before 1.21.4 fails with "client version 1.32 is too old". Since the dependency
+update, Boot manages it: 2.0.5 in catalog-, edge- and order-service, with testcontainers-keycloak
+4.4.0; it works with the local Podman 4.9. **Left:** the run on an `ubuntu-26.04` runner
+(deferred checks). The per-service workflows under
 `*/.github/workflows`, which don't run here, use `ubuntu-22.04`, unsupported from 2027-04-17.
-
-### 20. Other CI cleanup
-
-- The disabled `native-build` job calls a `nativeBuild` task that doesn't exist, and targets the
-  book's Chapter16 copies.
-- The smoke tests build quote-service and quote-function as JVM images even in CI, so their
-  native images are never tested. A runner has the memory for a native build.
 
 ### 23. Unknown order ids in order-dispatched events are dropped silently
 
@@ -158,11 +149,6 @@ Under Podman the apps' logs can't reach fluent-bit (Podman 4.9 has no `fluentd` 
 smoke test checks neither Loki nor fluent-bit; exemplars are dropped because Prometheus' exemplar
 storage is off; the native-histograms flag is experimental. **Fix:** exemplar storage if exemplars
 are wanted, and Loki checks in the observability smoke test.
-
-### 29. The smoke test hard-codes JDK versions
-
-The default JDKs are exact sdkman versions, though `SMOKE_JDK_17` and `SMOKE_JDK_21` override
-them. **Fix:** a preset `JAVA_HOME` once every project is on one JDK.
 
 ### 30. The README doesn't say to clean up after Testcontainers without Ryuk
 
@@ -272,11 +258,10 @@ or need a push. Run heavy ones one at a time, after `free -h`.
 |---|---|---|
 | order-service on Docker Engine without `extra_hosts` | 9 | A CI runner or another Docker Engine host: order-service with the compose env but without `--add-host`, then `GET /orders` with a token |
 | Exemplars, native histograms, and the apps' logs in Loki | 28 | The full observability stack (about 2.65 GiB), or CI |
-| Testcontainers 1.21.4 on an `ubuntu-26.04` runner | 14 | A CI run on `ubuntu-26.04` |
+| Testcontainers 2.0.5 on an `ubuntu-26.04` runner | 14 | A CI run on `ubuntu-26.04` |
 | order-service's book lookups after a broker outage | 3 | `smoke-test.sh up order`, then stop and start `polar-rabbitmq` a few times with orders in between. Seen once (REJECTED orders until order-service restarted), before the bridge MAC fix (34); a recurrence would have another cause |
 | Runs on the default branch aren't cancelled | 18 | Two pushes to `mikkosuonio/development`, the default branch, in quick succession: both runs finish |
 | Smoke tests from two worktrees at once | 10 | `smoke-test.sh all config` in two worktrees at about the same time. The second waits, takes the stack over and rebuilds config-service's image, and the first's `test config` then refuses the stack |
-| Native images of quote-service and quote-function, `FunctionInputExceptionHandler` among them | 20, 24 | More memory than the development server has; a CI runner may do. `./gradlew bootBuildImage` without the smoke test's JVM override, then the POETRY request |
 
 ## Future work
 

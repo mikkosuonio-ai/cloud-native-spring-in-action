@@ -33,8 +33,8 @@
 # worktree's stack, and down leaves it running. up also rebuilds an image another worktree built.
 #
 # Environment:
-#   SMOKE_JDK_17, SMOKE_JDK_21, SMOKE_JDK_25
-#                               JDKs the image builds run on (default: the sdkman installations)
+#   SMOKE_JDK                   JDK the image builds' Gradle runs on (default: JAVA_HOME); each
+#                               build finds the JDK of its toolchain (Java 25) itself
 #   SMOKE_JUNIT=FILE            test and all also write each check to FILE as JUnit XML
 #   SMOKE_POLAR_UI_IMAGE        polar-ui image instead of the compose file's, for example a
 #                               local build of the fork, localhost/polar-ui:dev
@@ -97,16 +97,10 @@ declare -A STANDALONE_PORT=([quote-service]=9101 [quote-function]=9102)
 # Services whose build.gradle asks for a GraalVM native image; built as JVM images instead,
 # because native compilation needs more memory than this machine has.
 JVM_INSTEAD_OF_NATIVE=" quote-service quote-function "
-# JDK each build runs on, installed with sdkman unless SMOKE_JDK_17/21/25 name others, as
-# in CI. Interim until every project is on the same JDK and builds can use a preset JAVA_HOME.
-JDKS=$HOME/.sdkman/candidates/java
-JDK_17=${SMOKE_JDK_17:-$JDKS/17.0.20-tem}
-JDK_25=${SMOKE_JDK_25:-$JDKS/25.0.5.0+8-tem}
-# The services moved to JDK 25 by the dependency update (development/plan/dependency-update.md).
-declare -A JDK=([catalog-service]=$JDK_25
-                [edge-service]=$JDK_25 [dispatcher-service]=$JDK_25 [order-service]=$JDK_25
-                [config-service]=$JDK_25 [quote-service]=$JDK_25 [quote-function]=$JDK_25)
-DEFAULT_JDK=${SMOKE_JDK_21:-$JDKS/21.0.12+1.1-tem}
+# The JDK Gradle runs on for the image builds, or without one the java on PATH. Every build.gradle
+# names its Java version in a toolchain, which Gradle finds among the installed JDKs (sdkman's
+# here, setup-java's in CI), so any JDK from 17 on can run the builds.
+BUILD_JDK=${SMOKE_JDK:-${JAVA_HOME:-}}
 has() { [[ " ${SERVICES[*]} " == *" $1 "* ]]; }
 needs_keycloak() { has catalog-service; }
 needs_rabbit() { has order-service || has dispatcher-service; }
@@ -311,11 +305,16 @@ EOF
     echo "Building a JVM image instead of the configured native image"
     props+=(-PsmokeTestJvmImage)
   fi
-  local jdk=${JDK[$1]:-$DEFAULT_JDK}
-  [[ -x $jdk/bin/java ]] \
-    || { echo "JDK not found: $jdk (install it with sdkman, or set SMOKE_JDK_17/21/25)" >&2; exit 1; }
-  echo "Using JDK $jdk"
-  JAVA_HOME=$jdk "$PB/$1/gradlew" --no-daemon -q -p "$PB/$1" -I "$WORK/podman.init.gradle" "${props[@]}" bootBuildImage \
+  local env=()
+  if [[ -n $BUILD_JDK ]]; then
+    [[ -x $BUILD_JDK/bin/java ]] || { echo "JDK not found: $BUILD_JDK (SMOKE_JDK or JAVA_HOME)" >&2; exit 1; }
+    echo "Using JDK $BUILD_JDK"
+    env=(JAVA_HOME="$BUILD_JDK")
+  else
+    command -v java >/dev/null || { echo "No JDK: set JAVA_HOME or SMOKE_JDK" >&2; exit 1; }
+    echo "Using the java on PATH ($(command -v java))"
+  fi
+  env "${env[@]}" "$PB/$1/gradlew" --no-daemon -q -p "$PB/$1" -I "$WORK/podman.init.gradle" "${props[@]}" bootBuildImage \
     > "$WORK/build.log" 2>&1 || { tail -40 "$WORK/build.log"; echo "$1 image build FAILED" >&2; exit 1; }
   echo "Image built"
   echo "$(podman image inspect -f '{{.Id}}' "$1") $ROOT" > "$STATE/images/$1"

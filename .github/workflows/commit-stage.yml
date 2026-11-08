@@ -25,16 +25,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Each project with the JDK its build runs on. The dependency update moves them to 25
-        # one at a time (development/plan/dependency-update.md).
-        include:
-          - { project: PolarBookshop/catalog-service, java: 25 }
-          - { project: PolarBookshop/quote-service, java: 25 }
-          - { project: PolarBookshop/quote-function, java: 25 }
-          - { project: PolarBookshop/dispatcher-service, java: 25 }
-          - { project: PolarBookshop/config-service, java: 25 }
-          - { project: PolarBookshop/order-service, java: 25 }
-          - { project: PolarBookshop/edge-service, java: 25 }
+        project: [
+          PolarBookshop/catalog-service,
+          PolarBookshop/quote-service,
+          PolarBookshop/quote-function,
+          PolarBookshop/dispatcher-service,
+          PolarBookshop/config-service,
+          PolarBookshop/order-service,
+          PolarBookshop/edge-service,
+        ]
     defaults:
       run:
         working-directory: ${{ matrix.project }}
@@ -45,7 +44,7 @@ jobs:
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: ${{ matrix.java }}
+          java-version: 25
           cache: gradle
           # A cache per project. settings.gradle also keeps the key apart from the images
           # job's, whose image build needs other dependencies than the tests.
@@ -142,14 +141,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-      - name: Set up JDKs
+      - name: Set up JDK
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: |
-            17
-            21
-            25
+          java-version: 25
           cache: gradle
           # A cache per service: each job needs its own project's dependencies only.
           cache-dependency-path: |
@@ -158,9 +154,6 @@ jobs:
       - name: Build the image
         env:
           SERVICE: ${{ matrix.service }}
-          SMOKE_JDK_17: ${{ env.JAVA_HOME_17_X64 }}
-          SMOKE_JDK_21: ${{ env.JAVA_HOME_21_X64 }}
-          SMOKE_JDK_25: ${{ env.JAVA_HOME_25_X64 }}
         run: bash development/script/smoke-test.sh build "$SERVICE"
       - name: Save the image
         env:
