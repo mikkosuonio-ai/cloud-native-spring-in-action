@@ -35,8 +35,12 @@ future work are in [findings.md](findings.md).
     tag bump here.
   - Commits in the fork come from a Claude session started in its clone, since a session in a
     worktree here runs git only in that worktree.
-- **Versions:** catalog-service is on Spring Boot 3.5.6 and JDK 21; the other services are on
-  Boot 2.7.18 and JDK 17. Everything except production runs PostgreSQL 17.11 and Keycloak 26.8.1.
+- **Versions** (since the dependency update of 2026-11-07/08, `plan/dependency-update.md`): every
+  service on Spring Boot 4.1.2, Spring Cloud 2025.1.4, JDK 25 and Gradle 9.8.2, its image from
+  the pinned `builder-noble-java-tiny` 0.0.211, and its tests on Testcontainers 2.0.5. Backing
+  services: PostgreSQL 17.11, Keycloak 26.8.1, Redis 7.2, RabbitMQ 4.4; observability: Tempo
+  2.10.10, Loki 3.7.9, Grafana 12.4.14, Prometheus 3.13.5 LTS. The browser tests run Playwright
+  1.65.0 on Node.js 24, and CI's Kubernetes job MicroK8s 1.36. Production differs (33, 42).
 
 ## Decisions
 
@@ -117,8 +121,8 @@ in git history at 6a9cd2a.
   timeout. Started together on 2 CPUs, the apps took longer than the liveness probe allowed and
   were restarted (13).
 - **The preStop hooks use `sleep`,** not `sh -c "sleep 5"`: catalog's tiny image has no shell (4).
-- **catalog-service's builder is pinned to a version,** since Paketo once pushed its `latest` as
-  an arm64-only image.
+- **Every builder is pinned to a version,** since Paketo once pushed its `latest` as an
+  arm64-only image.
 - **The smoke script sets the network bridge's MAC address.** netavark 1.4 lets it change when a
   container joins, and the containers started before then lose DNS for up to a minute (34).
 - **RabbitMQ on Kubernetes** has an absolute memory watermark (200 MiB) under a 300Mi limit, and
@@ -134,3 +138,22 @@ in git history at 6a9cd2a.
 - **The `testdata` profile isn't active by default,** since it deletes the catalog at startup (8).
 - **Smoke runs from different worktrees take turns** through a lock, since they share container
   names, ports and image tags (10).
+
+From the dependency update (`plan/dependency-update.md` has each step's commit and checks):
+- **The WebFlux services' images append `-XX:MaxDirectMemorySize=64M`** to `JAVA_TOOL_OPTIONS`
+  (`BPE_APPEND_JAVA_TOOL_OPTIONS`). The buildpack's memory calculator gives direct memory 10M,
+  which Netty 4.2's allocator outgrew: edge-service's responses failed.
+- **catalog-service sets `spring.jackson.deserialization.fail-on-null-for-primitives: false`.**
+  Jackson 3 refuses a missing value for a primitive, and polar-ui sends books without their
+  `int` version.
+- **edge-service resolves CSRF tokens unmasked** (`ServerCsrfTokenRequestAttributeHandler`):
+  polar-ui sends the raw `XSRF-TOKEN` cookie value, and Spring Security 6 expects masked ones.
+- **edge-service's gateway actuator endpoint is read-only.** Gateway 4.3 turned it off, and
+  before that it took route changes from anyone.
+- **quote-function's `logQuote` is a `Consumer<Mono<Quote>>`,** not a plain `Consumer`: Spring
+  Cloud Function 4.3 and 5.0 fail to compose a plain one after `genreQuote` (54).
+- **The smoke script's capture queues are durable,** since RabbitMQ 4.4 refuses transient
+  non-exclusive queues; the script deletes them itself.
+- **The smoke script unmarks the quote services' jars** (`Spring-Boot-Native-Processed: false`)
+  for their JVM images: marked, the native-image buildpack joins in and the image gets neither a
+  native binary nor a JRE.

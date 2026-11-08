@@ -15,34 +15,30 @@ Paths are relative to `PolarBookshop/` unless they start with `development/` or 
 
 ## The dependency update
 
-All components are to be updated, Spring Boot and the JDK above all, as
-[plan/dependency-update.md](plan/dependency-update.md) describes. The findings that make its
-safety net reliable were fixed first. What the review left for the update, and for after it:
+Done on 2026-11-07/08 as `development/plan/dependency-update.md` describes: every service on
+Spring Boot 4.1, Spring Cloud 2025.1 and JDK 25, the images and CI on supported releases. 12, 17,
+14, 20, 22, 25 and 29 were fixed with it; 54 came up in it. The plan's progress table has the commit,
+CI run and checks of each step; it stays until what's left below is done.
 
-**The order is partly forced.** Spring Boot 3 first, then the JDK:
-- quote-service and quote-function can't go past JDK 17 while they use Spring Native 0.12, whose
-  AOT step can't read Java 21 class files;
-- order-service's tests broke on JDK 21 under Boot 2.7 (22, gone with Boot 3.5's Byte Buddy).
+**Left from it:**
+- **Node.js 26 for the browser tests:** it needs `libatomic1` on the development server
+  (`sudo apt install libatomic1`); they stay on Node.js 24, in maintenance to 2028-04-30.
+- **MicroK8s 1.36 on the development server** (`sudo snap refresh microk8s --channel=1.36/stable`;
+  CI runs 1.36), and deferred check 4 again on it.
+- **The `pre-dependency-update` tag** (on `5a71b5a`) exists only locally until it is pushed.
+- **JDK 25 warns that Netty calls a restricted method** (`System::loadLibrary`), which a future
+  JDK blocks unless native access is enabled (`--enable-native-access=ALL-UNNAMED`).
+- **Gradle 9.9** (released 2026-11-06) and **Spring Boot 4.2 with Spring Cloud 2026.0** (planned
+  for 2026-11-30); PostgreSQL 18, Redis 8, Tempo 3; `@ServiceConnection` in place of
+  `@DynamicPropertySource`.
 
-**Risks to guard:**
-- Spring Security 6, with Boot 3, masks CSRF tokens by default, which breaks SPAs that send the
-  raw XSRF-TOKEN cookie value, as polar-ui does through Angular's interceptor. edge-service
-  resolves them raw since its Boot 3.5 step; `SecurityConfigTests`, the browser tests and the
-  curl smoke tests cover the writes and the logout form.
-- Flyway 8 warns that PostgreSQL 17 is newer than it has been tested with. A newer Flyway comes
-  with Boot 3.
-- Keycloak 26 on Kubernetes has little room under its 750Mi limit: 525 MiB of its own memory
-  after a smoke run, plus about 200 MiB of page cache.
-
-**As part of the update:** 14; 12, 17, 20, 22, 25 and 29 are fixed.
-
-**After the update:**
-- 24, 38: the update changes the Spring Cloud Function web layer and the gateway.
-- 3's outbox, 26: they touch the R2DBC and Stream APIs that change.
+**After the update,** as planned:
+- 24, 38: on the new Spring Cloud Function web layer and gateway.
+- 3's outbox, 26: on the new R2DBC and Stream APIs.
 - 23, 27, 31: application code that doesn't depend on versions.
-- 9, 28, 30.
-- 33, 42: a task of their own. Until the overlays use this repository's `k8s/` directories, the
-  update doesn't reach staging and production.
+- 9, 28, 30, 50, 52.
+- 33, 42, 43: a task of their own. Until the overlays use this repository's `k8s/` directories,
+  the update doesn't reach staging and production.
 
 **polar-ui's Angular and Node update is finished.** It went first, in the fork, one major
 version at a time: releases v1.3.0 to v2.1.1 (2026-10-29 and 30) took it from Angular 13 and
@@ -88,15 +84,6 @@ order-service's JWT issuer is at `host.docker.internal`, but unlike catalog-serv
 edge-service it has no `extra_hosts` entry in `polar-deployment/docker/docker-compose.yml`. Podman
 adds the name by itself, so neither local runs nor CI show it. **Fix:**
 `extra_hosts: ["host.docker.internal:host-gateway"]`.
-
-### 14. Testcontainers on `ubuntu-26.04` runners
-
-`ubuntu-latest` moves to `ubuntu-26.04` (Docker 29, minimum API 1.44) in November 2026, where
-Testcontainers before 1.21.4 fails with "client version 1.32 is too old". Since the dependency
-update, Boot manages it: 2.0.5 in catalog-, edge- and order-service, with testcontainers-keycloak
-4.4.0; it works with the local Podman 4.9. **Left:** the run on an `ubuntu-26.04` runner
-(deferred checks). The per-service workflows under
-`*/.github/workflows`, which don't run here, use `ubuntu-22.04`, unsupported from 2027-04-17.
 
 ### 23. Unknown order ids in order-dispatched events are dropped silently
 
@@ -166,7 +153,9 @@ Every staging and production overlay in `polar-deployment/kubernetes/application
 - the production `patch-tracing.yml` files still name
   `BOOT-INF/lib/opentelemetry-javaagent-<version>.jar`, as upstream's images have it; since 7 the
   agent is `/workspace/opentelemetry-javaagent.jar`;
-- catalog-service's `patch-tracing.yml` isn't listed in its overlay's `kustomization.yml`.
+- catalog-service's `patch-tracing.yml` isn't listed in its overlay's `kustomization.yml`;
+- the per-service workflows under `*/.github/workflows`, which don't run here, use `ubuntu-22.04`,
+  unsupported from 2027-04-17.
 - production's polar-ui (`kubernetes/platform/production/polar-ui/resources/polar-ui.yml`) stays
   on upstream's `ghcr.io/polarbookshop/polar-ui:v1` until then (43): the fork's v2 needs
   this repository's edge-service, for `/media/**` and the `[]` catalog fallback, and production's
@@ -254,7 +243,6 @@ or need a push. Run heavy ones one at a time, after `free -h`.
 |---|---|---|
 | order-service on Docker Engine without `extra_hosts` | 9 | A CI runner or another Docker Engine host: order-service with the compose env but without `--add-host`, then `GET /orders` with a token |
 | Exemplars, native histograms, and the apps' logs in Loki | 28 | The full observability stack (about 2.65 GiB), or CI |
-| Testcontainers 2.0.5 on an `ubuntu-26.04` runner | 14 | A CI run on `ubuntu-26.04` |
 | order-service's book lookups after a broker outage | 3 | `smoke-test.sh up order`, then stop and start `polar-rabbitmq` a few times with orders in between. Seen once (REJECTED orders until order-service restarted), before the bridge MAC fix (34); a recurrence would have another cause |
 | Runs on the default branch aren't cancelled | 18 | Two pushes to `mikkosuonio/development`, the default branch, in quick succession: both runs finish |
 | Smoke tests from two worktrees at once | 10 | `smoke-test.sh all config` in two worktrees at about the same time. The second waits, takes the stack over and rebuilds config-service's image, and the first's `test config` then refuses the stack |
@@ -269,10 +257,11 @@ or need a push. Run heavy ones one at a time, after `free -h`.
 - **The whole system in one smoke job,** as a fifth matrix entry: never run, even locally, but
   it would test edge-service with observability.
 - **A separate smoke workflow** (`workflow_run`, downloading the images from the triggering run),
-  if the smoke tests make every push too slow. A run now takes about 6–9 minutes. `workflow_run`
-  always uses the default branch's workflow file.
-- **`ubuntu-26.04` runners,** once generally available or when the development server moves to
-  26.04. Their newer Podman would differ from the local runs (and 14 first).
+  if the smoke tests make every push too slow. A run now takes about 15 minutes, the native jobs
+  being the longest. `workflow_run` always uses the default branch's workflow file.
+- **`ubuntu-26.04` runners,** once the development server moves to 26.04: their newer Podman
+  would differ from the local runs. The build jobs passed on them (deferred check 14, in the
+  dependency update).
 - Coverage thresholds with `jacocoTestCoverageVerification`.
 - Vulnerability scanning of this repository's code and images (the book uses grype; the fork has
   Anchore's scans back).
